@@ -18,6 +18,7 @@ import {
   getLanguageSettings,
   saveLanguageSettings,
 } from "@/lib/settings-service"
+import { updateTrayMenuLabels } from "@/lib/tray-service"
 
 export type TranslationParams = Record<
   string,
@@ -121,6 +122,13 @@ export function I18nProvider({
     (key, params) => interpolate(resources[locale][key], params),
     [locale],
   )
+
+  useEffect(() => {
+    void updateTrayMenuLabels(
+      t("tray.showApp"),
+      t("tray.quit"),
+    ).catch(() => undefined)
+  }, [t])
 
   const setLanguage = useCallback(
     async (nextLanguage: LanguagePreference) => {

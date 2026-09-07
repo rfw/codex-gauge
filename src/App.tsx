@@ -14,11 +14,16 @@ import { Button } from "@/components/ui/button"
 import { useAccounts } from "@/features/accounts/use-accounts"
 import { useI18n } from "@/i18n"
 import { localizeErrorMessage } from "@/i18n/errors"
-import { formatClockTime, formatPollingInterval } from "@/lib/format"
+import {
+  formatClockTime,
+  formatPollingInterval,
+  formatResetTime,
+} from "@/lib/format"
 import {
   getRuntimeStatus,
   type RuntimeStatus,
 } from "@/lib/runtime-service"
+import type { CodexAccount } from "@/features/accounts/types"
 
 export default function App() {
   const { t } = useI18n()
@@ -81,6 +86,9 @@ function CodexGaugeApp() {
   const [switchSuccessAccount, setSwitchSuccessAccount] = useState<string | null>(null)
   const [settingsTab, setSettingsTab] =
     useState<SettingsTab>("general")
+  const [nowSeconds, setNowSeconds] = useState(() =>
+    Math.floor(Date.now() / 1000),
+  )
 
   const {
     accounts,
@@ -118,6 +126,16 @@ function CodexGaugeApp() {
     }
   }, [switchSuccessAccount])
 
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setNowSeconds(Math.floor(Date.now() / 1000))
+    }, 30_000)
+
+    return () => {
+      window.clearInterval(interval)
+    }
+  }, [])
+
   async function handleSwitchAccount(accountId: string) {
     const accountLabel = accounts.find((account) => account.id === accountId)?.label
 
@@ -149,6 +167,34 @@ function CodexGaugeApp() {
       ? "app.accountCountOne"
       : "app.accountCountMany",
     { count: accounts.length },
+  )
+
+  const nextResetAccount = accounts.reduce<CodexAccount | null>(
+    (nextAccount, account) => {
+      const weeklyRemaining = account.weekly
+        ? 100 - account.weekly.usedPercent
+        : 0
+      const resetAt = account.fiveHour?.resetsAt ?? null
+
+      if (
+        weeklyRemaining <= 0 ||
+        !resetAt ||
+        resetAt <= nowSeconds
+      ) {
+        return nextAccount
+      }
+
+      const nextResetAt =
+        nextAccount?.fiveHour?.resetsAt ?? Number.POSITIVE_INFINITY
+
+      return resetAt < nextResetAt ? account : nextAccount
+    },
+    null,
+  )
+
+  const nextResetTime = formatResetTime(
+    nextResetAccount?.fiveHour?.resetsAt ?? null,
+    locale,
   )
 
   return (
@@ -198,10 +244,37 @@ function CodexGaugeApp() {
             </div>
           </div>
 
-          <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-            <span className="truncate">{pollingLabel}</span>
-            <span aria-hidden="true">·</span>
-            <span className="shrink-0 tabular-nums">{updatedLabel}</span>
+          <div className="mt-2 flex min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-1 text-xs text-muted-foreground">
+            <div className="flex min-w-0 items-center gap-1.5">
+              <span className="shrink-0">{t("app.nextReset")}</span>
+
+              {nextResetAccount && nextResetTime ? (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span
+                    className="max-w-36 truncate font-medium text-foreground"
+                    title={nextResetAccount.label}
+                  >
+                    {nextResetAccount.label}
+                  </span>
+                  <span aria-hidden="true">·</span>
+                  <span className="shrink-0 font-semibold tabular-nums text-[#ce00ff]">
+                    {nextResetTime}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span>{t("app.nextResetUnavailable")}</span>
+                </>
+              )}
+            </div>
+
+            <div className="ml-auto flex shrink-0 items-center gap-1.5">
+              <span>{pollingLabel}</span>
+              <span aria-hidden="true">·</span>
+              <span className="tabular-nums">{updatedLabel}</span>
+            </div>
           </div>
         </header>
 
@@ -263,6 +336,7 @@ function CodexGaugeApp() {
               <AccountCard
                 key={account.id}
                 account={account}
+                highlightNextReset={account.id === nextResetAccount?.id}
                 onSwitch={handleSwitchAccount}
                 onRename={renameAccount}
                 onDelete={deleteAccount}

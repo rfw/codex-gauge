@@ -17,6 +17,8 @@ export const zhCN: Record<TranslationKey, string> = {
   "app.retry": "重试",
   "app.noAccounts": "暂无账号",
   "app.noAccountsDescription": "添加 Codex 账号后即可查看用量并管理账号。",
+  "app.nextReset": "下次重置",
+  "app.nextResetUnavailable": "暂无",
 
   "settings.title": "设置",
   "settings.description": "配置语言、网络、轮询和应用信息。",
@@ -167,6 +169,8 @@ export const zhCN: Record<TranslationKey, string> = {
   "update.checkFailed": "检查更新失败，请稍后重试。",
   "update.installFailed": "安装更新失败，请稍后重试。",
 
+  "tray.showApp": "显示CodexGauge",
+  "tray.quit": "退出",
   "tray.closeHintTitle": "已隐藏到系统托盘",
   "tray.closeHintDescription": "CodexGauge 仍在后台运行。",
   "tray.keepOpen": "保持打开",

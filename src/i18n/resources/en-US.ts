@@ -15,6 +15,8 @@ export const enUS = {
   "app.retry": "Retry",
   "app.noAccounts": "No accounts",
   "app.noAccountsDescription": "Add a Codex account to start viewing usage and managing accounts.",
+  "app.nextReset": "Next reset",
+  "app.nextResetUnavailable": "None",
 
   "settings.title": "Settings",
   "settings.description": "Configure language, network, polling, and application information.",
@@ -165,6 +167,8 @@ export const enUS = {
   "update.checkFailed": "Unable to check for updates. Please try again later.",
   "update.installFailed": "Unable to install the update. Please try again later.",
 
+  "tray.showApp": "Show CodexGauge",
+  "tray.quit": "Quit",
   "tray.closeHintTitle": "Hidden to system tray",
   "tray.closeHintDescription": "CodexGauge is still running in the background.",
   "tray.keepOpen": "Keep open",

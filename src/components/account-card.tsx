@@ -28,6 +28,7 @@ import { useI18n } from "@/i18n"
 
 type AccountCardProps = {
   account: CodexAccount
+  highlightNextReset?: boolean
   onSwitch: (accountId: string) => Promise<void>
   onRename: (accountId: string, label: string) => Promise<void>
   onDelete: (accountId: string) => Promise<void>
@@ -35,6 +36,7 @@ type AccountCardProps = {
 
 function AccountCardComponent({
   account,
+  highlightNextReset = false,
   onSwitch,
   onRename,
   onDelete,
@@ -219,6 +221,7 @@ function AccountCardComponent({
               label={t("quota.fiveHour")}
               quota={account.fiveHour}
               unavailableReason={account.usageError}
+              highlightReset={highlightNextReset}
             />
             <QuotaRow
               label={t("quota.weekly")}

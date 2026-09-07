@@ -9,3 +9,13 @@ export async function showTrayCloseNotification(
     body,
   })
 }
+
+export async function updateTrayMenuLabels(
+  showLabel: string,
+  quitLabel: string,
+): Promise<void> {
+  await invoke<void>("update_tray_menu_labels", {
+    showLabel,
+    quitLabel,
+  })
+}
