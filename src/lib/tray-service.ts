@@ -1,0 +1,11 @@
+import { invoke } from "@tauri-apps/api/core"
+
+export async function showTrayCloseNotification(
+  title: string,
+  body: string,
+): Promise<void> {
+  await invoke<void>("show_tray_close_notification", {
+    title,
+    body,
+  })
+}
