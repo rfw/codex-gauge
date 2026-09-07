@@ -10,7 +10,7 @@ use crate::settings;
 pub(crate) const FIRST_CLOSE_EVENT: &str = "codexgauge://tray-close-hint";
 
 pub(crate) fn setup_tray<R: Runtime>(app: &mut App<R>) -> tauri::Result<()> {
-    let open = MenuItem::with_id(app, "tray-open", "Open CodexGauge", true, None::<&str>)?;
+    let open = MenuItem::with_id(app, "tray-open", "Show CodexGauge", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "tray-quit", "Quit", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open, &quit])?;
 
@@ -40,6 +40,48 @@ pub(crate) fn setup_tray<R: Runtime>(app: &mut App<R>) -> tauri::Result<()> {
 
     builder.build(app)?;
     Ok(())
+}
+
+#[tauri::command]
+pub(crate) fn update_tray_menu_labels(
+    app: AppHandle,
+    show_label: String,
+    quit_label: String,
+) -> Result<(), String> {
+    let show_label = show_label.trim();
+    let quit_label = quit_label.trim();
+
+    if show_label.is_empty() || quit_label.is_empty() {
+        return Err("Tray menu labels cannot be empty.".to_string());
+    }
+
+    let show = MenuItem::with_id(
+        &app,
+        "tray-open",
+        show_label,
+        true,
+        None::<&str>,
+    )
+    .map_err(|error| format!("Unable to create the tray show item: {error}"))?;
+
+    let quit = MenuItem::with_id(
+        &app,
+        "tray-quit",
+        quit_label,
+        true,
+        None::<&str>,
+    )
+    .map_err(|error| format!("Unable to create the tray quit item: {error}"))?;
+
+    let menu = Menu::with_items(&app, &[&show, &quit])
+        .map_err(|error| format!("Unable to create the tray menu: {error}"))?;
+
+    let tray = app
+        .tray_by_id("codexgauge-main")
+        .ok_or_else(|| "CodexGauge tray icon is unavailable.".to_string())?;
+
+    tray.set_menu(Some(menu))
+        .map_err(|error| format!("Unable to update the tray menu: {error}"))
 }
 
 pub(crate) fn handle_window_event(window: &Window, event: &WindowEvent) {

@@ -67,6 +67,7 @@ pub fn run() {
             tray::start_main_window_drag,
             tray::hide_main_window_to_tray,
             tray::show_tray_close_notification,
+            tray::update_tray_menu_labels,
             accounts::list_codex_accounts,
             accounts::add_codex_account,
             accounts::rename_codex_account,
