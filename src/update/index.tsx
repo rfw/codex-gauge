@@ -20,6 +20,8 @@ import {
 } from "@/lib/update-service"
 
 type UpdateCheckResult = "idle" | "upToDate" | "available" | "error"
+type UpdateInstallPhase = "idle" | "downloading" | "installing"
+type UpdateInstallFailure = "download" | "install" | null
 
 type AppUpdateContextValue = {
   checking: boolean
@@ -40,11 +42,24 @@ let automaticCheckStarted = false
 export function AppUpdateProvider({ children }: AppUpdateProviderProps) {
   const [checking, setChecking] = useState(false)
   const [installing, setInstalling] = useState(false)
+  const [installPhase, setInstallPhase] =
+    useState<UpdateInstallPhase>("idle")
+  const [installFailure, setInstallFailure] =
+    useState<UpdateInstallFailure>(null)
+  const [downloadedBytes, setDownloadedBytes] = useState(0)
+  const [totalBytes, setTotalBytes] = useState<number | null>(null)
   const [result, setResult] = useState<UpdateCheckResult>("idle")
   const [error, setError] = useState<string | null>(null)
   const [availableUpdate, setAvailableUpdate] =
     useState<AppUpdateInfo | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
+
+  const resetInstallState = useCallback(() => {
+    setInstallPhase("idle")
+    setInstallFailure(null)
+    setDownloadedBytes(0)
+    setTotalBytes(null)
+  }, [])
 
   const runCheck = useCallback(async (
     respectIgnoredVersion: boolean,
@@ -69,6 +84,7 @@ export function AppUpdateProvider({ children }: AppUpdateProviderProps) {
 
       const ignored = preferences.ignoredVersion === update.version
       if (!respectIgnoredVersion || !ignored) {
+        resetInstallState()
         setDialogOpen(true)
       }
 
@@ -83,7 +99,7 @@ export function AppUpdateProvider({ children }: AppUpdateProviderProps) {
     } finally {
       setChecking(false)
     }
-  }, [])
+  }, [resetInstallState])
 
   useEffect(() => {
     if (automaticCheckStarted) {
@@ -103,17 +119,47 @@ export function AppUpdateProvider({ children }: AppUpdateProviderProps) {
 
   const install = useCallback(async () => {
     setInstalling(true)
+    setInstallPhase("downloading")
+    setInstallFailure(null)
+    setDownloadedBytes(0)
+    setTotalBytes(null)
     setError(null)
 
+    let downloaded = 0
+    let expectedTotal: number | null = null
+    let downloadFinished = false
+
     try {
-      await installAppUpdate()
+      await installAppUpdate((event) => {
+        switch (event.event) {
+          case "Started":
+            expectedTotal = event.data.contentLength
+            setTotalBytes(expectedTotal)
+            break
+
+          case "Progress":
+            downloaded += event.data.chunkLength
+            setDownloadedBytes(downloaded)
+            break
+
+          case "Finished":
+            downloadFinished = true
+            setInstallPhase("installing")
+            if (expectedTotal !== null) {
+              setDownloadedBytes(expectedTotal)
+            }
+            break
+        }
+      })
     } catch (cause) {
       setError(
         cause instanceof Error
           ? cause.message
           : String(cause),
       )
+      setInstallFailure(downloadFinished ? "install" : "download")
       setInstalling(false)
+      setInstallPhase("idle")
     }
   }, [])
 
@@ -130,6 +176,7 @@ export function AppUpdateProvider({ children }: AppUpdateProviderProps) {
         ignoredVersion: availableUpdate.version,
       })
       setDialogOpen(false)
+      resetInstallState()
     } catch (cause) {
       setError(
         cause instanceof Error
@@ -137,7 +184,7 @@ export function AppUpdateProvider({ children }: AppUpdateProviderProps) {
           : String(cause),
       )
     }
-  }, [availableUpdate])
+  }, [availableUpdate, resetInstallState])
 
   const value = useMemo<AppUpdateContextValue>(
     () => ({
@@ -158,8 +205,18 @@ export function AppUpdateProvider({ children }: AppUpdateProviderProps) {
         open={dialogOpen}
         update={availableUpdate}
         installing={installing}
+        installPhase={installPhase}
+        installFailure={installFailure}
+        downloadedBytes={downloadedBytes}
+        totalBytes={totalBytes}
         error={error}
-        onOpenChange={setDialogOpen}
+        onOpenChange={(open) => {
+          setDialogOpen(open)
+          if (!open) {
+            resetInstallState()
+            setError(null)
+          }
+        }}
         onInstall={install}
         onSkip={skip}
       />
