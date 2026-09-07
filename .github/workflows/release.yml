@@ -49,9 +49,12 @@ jobs:
 
             CodexGauge is an independent project and is not affiliated with,
             endorsed by, or sponsored by OpenAI.
-
-            Verify the installer before publishing this draft release.
           releaseDraft: true
           prerelease: false
           uploadUpdaterJson: true
           updaterJsonPreferNsis: true
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "${{ github.ref_name }}" --draft=false --latest
