@@ -1,6 +1,6 @@
 [package]
 name = "codex-gauge"
-version = "0.0.1"
+version = "0.3.0"
 description = "Codex account and usage dashboard"
 authors = ["rfw"]
 edition = "2021"
