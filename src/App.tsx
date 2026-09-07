@@ -154,55 +154,54 @@ function CodexGaugeApp() {
   return (
     <main className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto w-full max-w-2xl px-4 py-3">
-        <header className="mb-3 flex items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-2">
-            {!isLoading ? (
-              <>
-                <span className="shrink-0 text-sm font-semibold text-foreground">
+        <header className="mb-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              {!isLoading ? (
+                <span className="text-sm font-semibold text-foreground">
                   {accountCountLabel}
                 </span>
-                <span className="text-sm text-muted-foreground" aria-hidden="true">·</span>
-              </>
-            ) : null}
+              ) : null}
+            </div>
 
-            <div className="flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground">
-              <span className="truncate">{pollingLabel}</span>
-              <span aria-hidden="true">·</span>
-              <span className="shrink-0 tabular-nums">{updatedLabel}</span>
+            <div className="flex shrink-0 items-center gap-1.5">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 px-2.5 text-sm"
+                onClick={() => openSettings()}
+                disabled={isLoading}
+              >
+                <Settings2 className="size-3.5" />
+                {t("app.settings")}
+              </Button>
+
+              <AddAccountDialog
+                onAdd={addAccount}
+                disabled={isLoading}
+              />
+
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 px-2.5 text-sm"
+                onClick={() => void refresh()}
+                disabled={isLoading || isRefreshing}
+              >
+                <RefreshCw
+                  className={`size-3.5 ${isRefreshing ? "animate-spin" : ""}`}
+                />
+                {isRefreshing ? t("app.refreshing") : t("app.refresh")}
+              </Button>
             </div>
           </div>
 
-          <div className="flex shrink-0 items-center gap-1.5">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-8 px-2.5 text-sm"
-              onClick={() => openSettings()}
-              disabled={isLoading}
-            >
-              <Settings2 className="size-3.5" />
-              {t("app.settings")}
-            </Button>
-
-            <AddAccountDialog
-              onAdd={addAccount}
-              disabled={isLoading}
-            />
-
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-8 px-2.5 text-sm"
-              onClick={() => void refresh()}
-              disabled={isLoading || isRefreshing}
-            >
-              <RefreshCw
-                className={`size-3.5 ${isRefreshing ? "animate-spin" : ""}`}
-              />
-              {isRefreshing ? t("app.refreshing") : t("app.refresh")}
-            </Button>
+          <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+            <span className="truncate">{pollingLabel}</span>
+            <span aria-hidden="true">·</span>
+            <span className="shrink-0 tabular-nums">{updatedLabel}</span>
           </div>
         </header>
 
@@ -276,7 +275,7 @@ function CodexGaugeApp() {
           <div
             role="status"
             aria-live="polite"
-            className="fixed top-12 left-1/2 -translate-x-1/2 z-50 flex max-w-[320px] items-center gap-2 rounded-md border bg-popover px-3 py-2 text-sm text-popover-foreground shadow-lg"
+            className="fixed left-1/2 top-12 z-50 flex max-w-[320px] -translate-x-1/2 items-center gap-2 rounded-md border bg-popover px-3 py-2 text-sm text-popover-foreground shadow-lg"
           >
             <CircleCheckBig className="size-4 shrink-0 text-emerald-500" />
             <span>

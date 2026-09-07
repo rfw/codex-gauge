@@ -160,7 +160,7 @@ export function formatPollingInterval(
   return new Intl.NumberFormat(locale, {
     style: "unit",
     unit,
-    unitDisplay: locale === "zh-CN" ? "short" : "long",
+    unitDisplay: "short",
   }).format(value)
 }
 
@@ -173,8 +173,7 @@ export function formatClockTime(
   }
 
   return new Intl.DateTimeFormat(locale, {
-    hour: "2-digit",
+    hour: "numeric",
     minute: "2-digit",
-    second: "2-digit",
   }).format(new Date(unixMillis))
 }
