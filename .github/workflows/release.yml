@@ -10,12 +10,22 @@ permissions:
 
 jobs:
   build-windows:
-    name: Build Windows
+    name: Build and Release Windows
     runs-on: windows-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
+      - name: Verify release version
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $expectedTag = "v$version"
+
+          if ("${{ github.ref_name }}" -ne $expectedTag) {
+            throw "Tag ${{ github.ref_name }} does not match package.json version $version (expected $expectedTag)."
+          }
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -25,17 +35,10 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install frontend dependencies
+      - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Frontend build
-        run: bun run build
-
-      - name: Rust check
-        working-directory: src-tauri
-        run: cargo check
-
-      - name: Build updater artifacts and create draft release
+      - name: Build and upload release artifacts
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -54,7 +57,7 @@ jobs:
           uploadUpdaterJson: true
           updaterJsonPreferNsis: true
 
-      - name: Publish release
+      - name: Publish release as latest
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release edit "${{ github.ref_name }}" --draft=false --latest
