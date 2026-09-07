@@ -2,6 +2,10 @@
 
 [English](README.md) | **简体中文**
 
+<p align="center">
+  <img src="docs/images/main.png" alt="CodexGauge" width="600">
+</p>
+
 CodexGauge 是一个面向 Windows 的本地桌面应用，用于管理多个由用户本人拥有和控制的 Codex 账号、查看 Codex 用量限制，并手动切换当前使用的账号。
 
 项目基于 Tauri 2、React、TypeScript、Vite、Bun、Tailwind CSS 和 shadcn/ui 构建。
@@ -244,6 +248,9 @@ cd ..
 构建 Windows 应用和安装包：
 
 ```powershell
+$env:TAURI_SIGNING_PRIVATE_KEY="C:\Users\Administrator\.tauri\codex-gauge.key"
+$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
+
 bun tauri build
 ```
 

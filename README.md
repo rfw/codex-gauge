@@ -2,6 +2,10 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
+<p align="center">
+  <img src="docs/images/main.png" alt="CodexGauge" width="600">
+</p>
+
 CodexGauge is a local Windows desktop application for managing multiple user-owned Codex accounts, viewing Codex usage limits, and manually switching the active account.
 
 It is built with Tauri 2, React, TypeScript, Vite, Bun, Tailwind CSS, and shadcn/ui.
