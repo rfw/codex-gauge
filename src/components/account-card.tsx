@@ -25,10 +25,11 @@ import {
 } from "@/components/ui/tooltip"
 import type { CodexAccount } from "@/features/accounts/types"
 import { useI18n } from "@/i18n"
+import { formatCreditBalance } from "@/lib/format"
 
 type AccountCardProps = {
   account: CodexAccount
-  highlightNextReset?: boolean
+  highlightNextReset?: "fiveHour" | "weekly" | null
   onSwitch: (accountId: string) => Promise<void>
   onRename: (accountId: string, label: string) => Promise<void>
   onDelete: (accountId: string) => Promise<void>
@@ -36,12 +37,12 @@ type AccountCardProps = {
 
 function AccountCardComponent({
   account,
-  highlightNextReset = false,
+  highlightNextReset = null,
   onSwitch,
   onRename,
   onDelete,
 }: AccountCardProps) {
-  const { t } = useI18n()
+  const { locale, t } = useI18n()
   const [isEditing, setIsEditing] = useState(false)
   const [draftLabel, setDraftLabel] = useState(account.label)
   const [switchConfirmOpen, setSwitchConfirmOpen] = useState(false)
@@ -49,6 +50,20 @@ function AccountCardComponent({
   const [isSwitching, setIsSwitching] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const weeklyRemaining = account.weekly
+    ? Math.max(
+        0,
+        Math.min(
+          100,
+          Math.round(100 - account.weekly.usedPercent),
+        ),
+      )
+    : null
+  const weeklyExhausted = weeklyRemaining !== null && weeklyRemaining <= 0
+  const creditBalance = account.credits?.unlimited
+    ? t("credits.unlimited")
+    : formatCreditBalance(account.credits?.balance ?? null, locale)
+
 
   useEffect(() => {
     if (!isEditing) {
@@ -221,18 +236,31 @@ function AccountCardComponent({
               label={t("quota.fiveHour")}
               quota={account.fiveHour}
               unavailableReason={account.usageError}
-              highlightReset={highlightNextReset}
+              highlightReset={highlightNextReset === "fiveHour"}
+              showReset={!weeklyExhausted}
             />
             <QuotaRow
               label={t("quota.weekly")}
               quota={account.weekly}
               unavailableReason={account.usageError}
+              highlightReset={highlightNextReset === "weekly"}
             />
           </div>
 
+          {creditBalance ? (
+            <div className="flex items-center justify-between gap-3 px-0.5 border-t mt-2.5 pt-2.5">
+              <span className="text-sm font-medium text-muted-foreground">
+                {t("credits.remaining")}
+              </span>
+              <span className="text-sm tabular-nums">
+                {creditBalance}
+              </span>
+            </div>
+          ) : null}
+
           {account.bankedResets &&
           account.bankedResets.availableCount > 0 ? (
-            <div className="mt-2 border-t pt-2">
+            <div className="border-t pt-2.5">
               <BankedResetList resets={account.bankedResets} />
             </div>
           ) : null}

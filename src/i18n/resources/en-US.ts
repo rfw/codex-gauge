@@ -76,6 +76,9 @@ export const enUS = {
   "quota.resetTime": "Reset time: {{time}}",
   "quota.resetUnavailable": "Reset time unavailable",
 
+  "credits.remaining": "Credits remaining",
+  "credits.unlimited": "Unlimited",
+
   "banked.title": "Banked resets",
   "banked.availableCount": "{{count}} available",
   "banked.nextExpiry": "Next expiry {{date}}",

@@ -4,6 +4,12 @@ export type QuotaWindow = {
   resetsAt: number | null
 }
 
+export type CreditBalance = {
+  hasCredits: boolean
+  unlimited: boolean
+  balance: string | null
+}
+
 export type BankedReset = {
   id: string
   label?: string | null
@@ -24,6 +30,7 @@ export type CodexAccount = {
   isActive: boolean
   fiveHour: QuotaWindow | null
   weekly: QuotaWindow | null
+  credits: CreditBalance | null
   bankedResets: BankedResets | null
   usageError?: string | null
 }

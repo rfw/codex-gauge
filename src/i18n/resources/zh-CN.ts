@@ -78,6 +78,9 @@ export const zhCN: Record<TranslationKey, string> = {
   "quota.resetTime": "重置时间：{{time}}",
   "quota.resetUnavailable": "重置时间不可用",
 
+  "credits.remaining": "剩余额度",
+  "credits.unlimited": "无限",
+
   "banked.title": "限额重置",
   "banked.availableCount": "共 {{count}} 次",
   "banked.nextExpiry": "最近到期 {{date}}",

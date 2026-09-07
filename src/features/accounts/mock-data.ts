@@ -22,6 +22,11 @@ export const mockAccountsSnapshot: AccountsSnapshot = {
         windowDurationMins: 10080,
         resetsAt: now + 4 * day,
       },
+      credits: {
+        hasCredits: true,
+        unlimited: false,
+        balance: "3336",
+      },
       bankedResets: {
         availableCount: 2,
         items: [
@@ -53,6 +58,11 @@ export const mockAccountsSnapshot: AccountsSnapshot = {
         usedPercent: 19,
         windowDurationMins: 10080,
         resetsAt: now + 6 * day,
+      },
+      credits: {
+        hasCredits: false,
+        unlimited: false,
+        balance: "0",
       },
       bankedResets: {
         availableCount: 1,

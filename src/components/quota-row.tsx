@@ -9,6 +9,7 @@ type QuotaRowProps = {
   quota: QuotaWindow | null
   unavailableReason?: string | null
   highlightReset?: boolean
+  showReset?: boolean
 }
 
 export function QuotaRow({
@@ -16,6 +17,7 @@ export function QuotaRow({
   quota,
   unavailableReason,
   highlightReset = false,
+  showReset = true,
 }: QuotaRowProps) {
   const { locale, t } = useI18n()
 
@@ -64,26 +66,28 @@ export function QuotaRow({
         <span className="text-sm font-medium text-muted-foreground">
           {label}
         </span>
-        <span className="text-sm font-semibold tabular-nums">
+        <span className="text-sm tabular-nums">
           {t("quota.left", { percent: remaining })}
         </span>
       </div>
 
       <Progress value={remaining} className="mt-2 h-1.5" />
 
-      <p
-        className={
-          highlightReset && reset
-            ? "mt-1.5 text-xs font-medium text-[#ce00ff]"
-            : "mt-1.5 text-xs text-muted-foreground"
-        }
-      >
-        {reset
-          ? t("quota.resetTime", {
-              time: reset,
-            })
-          : t("quota.resetUnavailable")}
-      </p>
+      {showReset ? (
+        <p
+          className={
+            highlightReset && reset
+              ? "mt-1.5 text-xs font-medium text-[#ce00ff]"
+              : "mt-1.5 text-xs text-muted-foreground"
+          }
+        >
+          {reset
+            ? t("quota.resetTime", {
+                time: reset,
+              })
+            : t("quota.resetUnavailable")}
+        </p>
+      ) : null}
     </div>
   )
 }

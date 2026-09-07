@@ -169,31 +169,48 @@ function CodexGaugeApp() {
     { count: accounts.length },
   )
 
-  const nextResetAccount = accounts.reduce<CodexAccount | null>(
-    (nextAccount, account) => {
-      const weeklyRemaining = account.weekly
-        ? 100 - account.weekly.usedPercent
-        : 0
-      const resetAt = account.fiveHour?.resetsAt ?? null
+  type NextResetCandidate = {
+    account: CodexAccount
+    kind: "fiveHour" | "weekly"
+    resetsAt: number
+  }
 
-      if (
-        weeklyRemaining <= 0 ||
-        !resetAt ||
-        resetAt <= nowSeconds
-      ) {
-        return nextAccount
+  const nextReset = accounts.reduce<NextResetCandidate | null>(
+    (current, account) => {
+      const weeklyRemaining = account.weekly
+        ? Math.max(
+            0,
+            Math.min(
+              100,
+              Math.round(100 - account.weekly.usedPercent),
+            ),
+          )
+        : null
+      const weeklyExhausted =
+        weeklyRemaining !== null && weeklyRemaining <= 0
+
+      const kind: NextResetCandidate["kind"] = weeklyExhausted
+        ? "weekly"
+        : "fiveHour"
+      const resetsAt = weeklyExhausted
+        ? account.weekly?.resetsAt ?? null
+        : account.fiveHour?.resetsAt ?? null
+
+      if (!resetsAt || resetsAt <= nowSeconds) {
+        return current
       }
 
-      const nextResetAt =
-        nextAccount?.fiveHour?.resetsAt ?? Number.POSITIVE_INFINITY
+      if (!current || resetsAt < current.resetsAt) {
+        return { account, kind, resetsAt }
+      }
 
-      return resetAt < nextResetAt ? account : nextAccount
+      return current
     },
     null,
   )
 
   const nextResetTime = formatResetTime(
-    nextResetAccount?.fiveHour?.resetsAt ?? null,
+    nextReset?.resetsAt ?? null,
     locale,
   )
 
@@ -248,14 +265,14 @@ function CodexGaugeApp() {
             <div className="flex min-w-0 items-center gap-1.5">
               <span className="shrink-0">{t("app.nextReset")}</span>
 
-              {nextResetAccount && nextResetTime ? (
+              {nextReset && nextResetTime ? (
                 <>
                   <span aria-hidden="true">·</span>
                   <span
                     className="max-w-36 truncate font-medium text-foreground"
-                    title={nextResetAccount.label}
+                    title={nextReset.account.label}
                   >
-                    {nextResetAccount.label}
+                    {nextReset.account.label}
                   </span>
                   <span aria-hidden="true">·</span>
                   <span className="shrink-0 font-semibold tabular-nums text-[#ce00ff]">
@@ -336,7 +353,11 @@ function CodexGaugeApp() {
               <AccountCard
                 key={account.id}
                 account={account}
-                highlightNextReset={account.id === nextResetAccount?.id}
+                highlightNextReset={
+                  nextReset && account.id === nextReset.account.id
+                    ? nextReset.kind
+                    : null
+                }
                 onSwitch={handleSwitchAccount}
                 onRename={renameAccount}
                 onDelete={deleteAccount}

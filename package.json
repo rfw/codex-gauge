@@ -1,7 +1,11 @@
 {
   "name": "codex-gauge",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
+  "author": {
+    "name": "rfw",
+    "url": "https://github.com/rfw"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",

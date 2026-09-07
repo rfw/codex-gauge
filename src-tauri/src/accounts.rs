@@ -76,6 +76,7 @@ struct AccountView {
     is_active: bool,
     five_hour: Option<QuotaWindowView>,
     weekly: Option<QuotaWindowView>,
+    credits: Option<CreditBalanceView>,
     banked_resets: Option<BankedResetsView>,
     usage_error: Option<String>,
 }
@@ -86,6 +87,14 @@ pub(crate) struct QuotaWindowView {
     pub(crate) used_percent: f64,
     pub(crate) window_duration_mins: u64,
     pub(crate) resets_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CreditBalanceView {
+    pub(crate) has_credits: bool,
+    pub(crate) unlimited: bool,
+    pub(crate) balance: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -475,6 +484,7 @@ fn build_snapshot_with_usage(app: &AppHandle) -> Result<AccountsSnapshot, String
             plan: account.plan,
             five_hour: usage.five_hour,
             weekly: usage.weekly,
+            credits: usage.credits,
             banked_resets: usage.banked_resets,
             usage_error,
         });

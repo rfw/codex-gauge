@@ -9,7 +9,8 @@ use std::time::{Duration, Instant};
 use tauri::AppHandle;
 
 use crate::accounts::{
-    self, BankedResetView, BankedResetsView, QuotaWindowView, StoredAccount,
+    self, BankedResetView, BankedResetsView, CreditBalanceView, QuotaWindowView,
+    StoredAccount,
 };
 use crate::settings::{self, ProxySettings};
 
@@ -25,6 +26,7 @@ const TEMP_CODEX_CONFIG: &str = r#"cli_auth_credentials_store = "file"
 pub(crate) struct AccountUsage {
     pub(crate) five_hour: Option<QuotaWindowView>,
     pub(crate) weekly: Option<QuotaWindowView>,
+    pub(crate) credits: Option<CreditBalanceView>,
     pub(crate) banked_resets: Option<BankedResetsView>,
 }
 
@@ -510,6 +512,13 @@ fn parse_usage_response(result: &Value) -> Result<AccountUsage, String> {
         }
     }
 
+    usage.credits = snapshot
+        .and_then(|snapshot| parse_credit_balance(snapshot.get("credits")))
+        .or_else(|| {
+            result
+                .get("rateLimits")
+                .and_then(|rate_limits| parse_credit_balance(rate_limits.get("credits")))
+        });
     usage.banked_resets = parse_banked_resets(result.get("rateLimitResetCredits"));
 
     Ok(usage)
@@ -540,6 +549,31 @@ fn parse_window(value: &Value) -> Option<QuotaWindowView> {
         used_percent,
         window_duration_mins,
         resets_at,
+    })
+}
+
+
+fn parse_credit_balance(value: Option<&Value>) -> Option<CreditBalanceView> {
+    let credits = value?.as_object()?;
+
+    let has_credits = credits
+        .get("hasCredits")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let unlimited = credits
+        .get("unlimited")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let balance = credits.get("balance").and_then(value_as_string);
+
+    if !unlimited && balance.is_none() {
+        return None;
+    }
+
+    Some(CreditBalanceView {
+        has_credits,
+        unlimited,
+        balance,
     })
 }
 
@@ -593,6 +627,14 @@ fn parse_banked_reset(value: &Value) -> Option<BankedResetView> {
         details,
         expires_at,
     })
+}
+
+fn value_as_string(value: &Value) -> Option<String> {
+    match value {
+        Value::String(text) => Some(text.trim().to_string()).filter(|text| !text.is_empty()),
+        Value::Number(number) => Some(number.to_string()),
+        _ => None,
+    }
 }
 
 fn value_as_u64(value: &Value) -> Option<u64> {

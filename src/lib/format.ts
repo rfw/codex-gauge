@@ -14,6 +14,10 @@ function isSameLocalDay(a: Date, b: Date) {
   )
 }
 
+function displayResetDate(resetsAt: number) {
+  return new Date(Math.ceil(resetsAt / 60) * 60 * 1000)
+}
+
 function formatRelativeReset(
     resetsAt: number,
     locale: SupportedLocale,
@@ -64,7 +68,9 @@ export function formatResetTime(
     return null
   }
 
-  const resetDate = new Date(resetsAt * 1000)
+  // Codex surfaces present reset times at minute precision. Round up so a
+  // reset at 21:41:37 is not shown prematurely as 21:41.
+  const resetDate = displayResetDate(resetsAt)
   const now = new Date()
 
   if (isSameLocalDay(resetDate, now)) {
@@ -95,7 +101,7 @@ export function formatResetTimeParts(
     return null
   }
 
-  const resetDate = new Date(resetsAt * 1000)
+  const resetDate = displayResetDate(resetsAt)
   const now = new Date()
   const absolute = formatResetTime(resetsAt, locale)
 
@@ -176,4 +182,27 @@ export function formatClockTime(
     hour: "numeric",
     minute: "2-digit",
   }).format(new Date(unixMillis))
+}
+
+export function formatCreditBalance(
+  balance: string | null,
+  locale: SupportedLocale,
+): string | null {
+  const normalized = balance?.trim()
+
+  if (!normalized) {
+    return null
+  }
+
+  if (/^[+-]?\d+(?:\.\d+)?$/.test(normalized)) {
+    const value = Number(normalized)
+
+    if (Number.isFinite(value)) {
+      return new Intl.NumberFormat(locale, {
+        maximumFractionDigits: 20,
+      }).format(value)
+    }
+  }
+
+  return normalized
 }
