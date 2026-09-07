@@ -33,9 +33,27 @@ function isNetworkUsageError(message?: string | null) {
   )
 }
 
-function mergeAccountsPreservingUsage(
+function mergeUsage(
+  previous: CodexAccount,
+  incoming: CodexAccount,
+): CodexAccount {
+  if (!incoming.usageError) {
+    return incoming
+  }
+
+  return {
+    ...incoming,
+    fiveHour: incoming.fiveHour ?? previous.fiveHour,
+    weekly: incoming.weekly ?? previous.weekly,
+    credits: incoming.credits ?? previous.credits,
+    bankedResets: incoming.bankedResets ?? previous.bankedResets,
+  }
+}
+
+function mergeAuthoritativeAccounts(
   previous: CodexAccount[],
   incoming: CodexAccount[],
+  pendingLabels: ReadonlyMap<string, string>,
 ) {
   const previousById = new Map(
     previous.map((account) => [account.id, account]),
@@ -43,16 +61,44 @@ function mergeAccountsPreservingUsage(
 
   return incoming.map((account) => {
     const old = previousById.get(account.id)
+    const merged = old ? mergeUsage(old, account) : account
+    const pendingLabel = pendingLabels.get(account.id)
 
-    if (!old || !account.usageError) {
+    return pendingLabel === undefined
+      ? merged
+      : { ...merged, label: pendingLabel }
+  })
+}
+
+/**
+ * A refresh that started before an account metadata mutation completed is stale.
+ * It may still contain useful usage values, but it must not overwrite account
+ * membership, labels, active state, email, or plan with an older snapshot.
+ */
+function mergeStaleRefreshUsage(
+  previous: CodexAccount[],
+  incoming: CodexAccount[],
+) {
+  const incomingById = new Map(
+    incoming.map((account) => [account.id, account]),
+  )
+
+  return previous.map((account) => {
+    const refreshed = incomingById.get(account.id)
+
+    if (!refreshed) {
       return account
     }
 
+    const usage = mergeUsage(account, refreshed)
+
     return {
       ...account,
-      fiveHour: account.fiveHour ?? old.fiveHour,
-      weekly: account.weekly ?? old.weekly,
-      bankedResets: account.bankedResets ?? old.bankedResets,
+      fiveHour: usage.fiveHour,
+      weekly: usage.weekly,
+      credits: usage.credits,
+      bankedResets: usage.bankedResets,
+      usageError: usage.usageError,
     }
   })
 }
@@ -75,10 +121,24 @@ export function useAccounts() {
   const [refreshCycle, setRefreshCycle] = useState(0)
 
   const refreshPromiseRef = useRef<Promise<void> | null>(null)
+  const metadataRevisionRef = useRef(0)
+  const pendingLabelsRef = useRef(new Map<string, string>())
+
+  const beginMetadataMutation = useCallback(() => {
+    metadataRevisionRef.current += 1
+  }, [])
+
+  const completeMetadataMutation = useCallback(() => {
+    metadataRevisionRef.current += 1
+  }, [])
 
   const applySnapshot = useCallback((snapshot: AccountsSnapshot) => {
     setAccounts((previous) =>
-      mergeAccountsPreservingUsage(previous, snapshot.accounts),
+      mergeAuthoritativeAccounts(
+        previous,
+        snapshot.accounts,
+        pendingLabelsRef.current,
+      ),
     )
 
     const hasNetworkError = snapshotHasNetworkError(snapshot)
@@ -93,17 +153,52 @@ export function useAccounts() {
     setError(null)
   }, [])
 
+  const applyRefreshSnapshot = useCallback(
+    (snapshot: AccountsSnapshot, startedMetadataRevision: number) => {
+      const isMetadataStale =
+        startedMetadataRevision !== metadataRevisionRef.current
+
+      if (isMetadataStale) {
+        setAccounts((previous) =>
+          mergeStaleRefreshUsage(previous, snapshot.accounts),
+        )
+      } else {
+        setAccounts((previous) =>
+          mergeAuthoritativeAccounts(
+            previous,
+            snapshot.accounts,
+            pendingLabelsRef.current,
+          ),
+        )
+      }
+
+      const hasNetworkError = snapshotHasNetworkError(snapshot)
+
+      if (hasNetworkError) {
+        setAutoRefreshPaused(true)
+      } else {
+        setAutoRefreshPaused(false)
+        setLastUpdatedAt(snapshot.fetchedAt)
+      }
+
+      setError(null)
+    },
+    [],
+  )
+
   const runRefresh = useCallback(async () => {
     if (refreshPromiseRef.current) {
       return refreshPromiseRef.current
     }
+
+    const startedMetadataRevision = metadataRevisionRef.current
 
     const request = (async () => {
       setIsRefreshing(true)
 
       try {
         const snapshot = await getAccounts()
-        applySnapshot(snapshot)
+        applyRefreshSnapshot(snapshot, startedMetadataRevision)
       } catch (cause) {
         setError(
           cause instanceof Error
@@ -125,7 +220,7 @@ export function useAccounts() {
         refreshPromiseRef.current = null
       }
     }
-  }, [applySnapshot])
+  }, [applyRefreshSnapshot])
 
   const refresh = useCallback(async () => {
     // Manual refresh restarts the polling interval from this moment.
@@ -136,11 +231,15 @@ export function useAccounts() {
 
   const switchAccount = useCallback(async (accountId: string) => {
     setError(null)
+    beginMetadataMutation()
 
     try {
       const snapshot = await setActiveAccount(accountId)
+      completeMetadataMutation()
       applySnapshot(snapshot)
     } catch (cause) {
+      completeMetadataMutation()
+
       const message =
         typeof cause === "string"
           ? cause
@@ -151,7 +250,7 @@ export function useAccounts() {
       setError(message)
       throw cause
     }
-  }, [applySnapshot])
+  }, [applySnapshot, beginMetadataMutation, completeMetadataMutation])
 
   const renameAccount = useCallback(
     async (accountId: string, label: string) => {
@@ -160,9 +259,12 @@ export function useAccounts() {
         accounts.find((account) => account.id === accountId)?.label ?? null
 
       setError(null)
+      beginMetadataMutation()
+      pendingLabelsRef.current.set(accountId, normalizedLabel)
 
-      // Optimistic update: reflect the new label immediately instead of
-      // waiting for the Rust command to return a full accounts snapshot.
+      // Optimistic update: keep the requested label visible while the Rust
+      // command runs. Any refresh snapshot that arrives during this mutation
+      // is prevented from restoring an older label.
       setAccounts((previous) =>
         previous.map((account) =>
           account.id === accountId
@@ -176,8 +278,16 @@ export function useAccounts() {
           accountId,
           normalizedLabel,
         )
+
+        // Advance the revision before applying the authoritative mutation
+        // result so every refresh started before/during the rename is stale.
+        completeMetadataMutation()
         applySnapshot(snapshot)
+        pendingLabelsRef.current.delete(accountId)
       } catch (cause) {
+        completeMetadataMutation()
+        pendingLabelsRef.current.delete(accountId)
+
         if (previousLabel !== null) {
           setAccounts((previous) =>
             previous.map((account) =>
@@ -197,16 +307,20 @@ export function useAccounts() {
         throw cause
       }
     },
-    [accounts, applySnapshot],
+    [accounts, applySnapshot, beginMetadataMutation, completeMetadataMutation],
   )
 
   const addAccount = useCallback(async () => {
     setError(null)
+    beginMetadataMutation()
 
     try {
       const snapshot = await addCodexAccount()
+      completeMetadataMutation()
       applySnapshot(snapshot)
     } catch (cause) {
+      completeMetadataMutation()
+
       const message =
         cause instanceof Error
           ? cause.message
@@ -215,15 +329,19 @@ export function useAccounts() {
       setError(message)
       throw cause
     }
-  }, [applySnapshot])
+  }, [applySnapshot, beginMetadataMutation, completeMetadataMutation])
 
   const deleteAccount = useCallback(async (accountId: string) => {
     setError(null)
+    beginMetadataMutation()
 
     try {
       const snapshot = await deleteCodexAccount(accountId)
+      completeMetadataMutation()
       applySnapshot(snapshot)
     } catch (cause) {
+      completeMetadataMutation()
+
       const message =
         cause instanceof Error
           ? cause.message
@@ -232,7 +350,7 @@ export function useAccounts() {
       setError(message)
       throw cause
     }
-  }, [applySnapshot])
+  }, [applySnapshot, beginMetadataMutation, completeMetadataMutation])
 
   const updateRefreshSettings = useCallback(
     async (settings: RefreshSettings) => {
