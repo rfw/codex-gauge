@@ -228,6 +228,11 @@ function CodexGaugeApp() {
             </div>
 
             <div className="flex shrink-0 items-center gap-1.5">
+              <AddAccountDialog
+                  onAdd={addAccount}
+                  disabled={isLoading}
+              />
+
               <Button
                 type="button"
                 variant="outline"
@@ -239,11 +244,6 @@ function CodexGaugeApp() {
                 <Settings2 className="size-3.5" />
                 {t("app.settings")}
               </Button>
-
-              <AddAccountDialog
-                onAdd={addAccount}
-                disabled={isLoading}
-              />
 
               <Button
                 type="button"
