@@ -6,76 +6,78 @@
   <img src="docs/images/main.png" alt="CodexGauge" width="600">
 </p>
 
-CodexGauge 是一个面向 Windows 的本地桌面应用，用于管理多个由用户本人拥有和控制的 Codex 账号、查看 Codex 用量限制，并手动切换当前使用的账号。
+<p align="center">
+  Windows 平台的本地 Codex 额度监控与多账号管理工具。
+</p>
 
-项目基于 Tauri 2、React、TypeScript、Vite、Bun、Tailwind CSS 和 shadcn/ui 构建。
+<p align="center">
+  <a href="https://github.com/rfw/codex-gauge/releases/latest">下载 Windows 版</a>
+</p>
 
-> **独立项目声明：** CodexGauge 是独立开源项目，与 OpenAI 无隶属、合作、认证、赞助或官方背书关系。
+CodexGauge 是一款本地优先的 Windows 桌面应用，用于查看 Codex 使用额度与重置时间，并手动管理多个由用户本人拥有和控制的 Codex 账号。
 
-## 功能
+项目基于 Tauri 2、Rust、React、TypeScript、Vite、Bun、Tailwind CSS 和 shadcn/ui 构建。
 
-- 查看 Codex 5 小时和每周用量限制。
-- 显示本地化的额度重置时间。
-- 查看 Banked rate-limit reset 数量及其过期信息。
-- 通过官方 Codex CLI 登录流程添加多个由用户本人拥有的 Codex 账号。
-- 手动切换当前 Codex 账号。
-- 修改本地账号别名。
+> **独立项目声明：** CodexGauge 与 OpenAI 无隶属关系，未获得 OpenAI 的认可、认证、背书或赞助。
+
+## 功能亮点
+
+- 查看 Codex 5 小时额度和每周额度。
+- 在 Codex 返回相关数据时显示剩余额度（Credits）。
+- 按本地语言和时区显示额度重置时间。
+- 在多个已管理账号中显示最早的有效“下次重置”。
+- 查看限额重置（Banked resets）及其到期信息。
+- 通过官方 Codex CLI 登录流程添加多个由用户本人拥有的账号。
+- 手动切换当前账号。
+- 修改本地账号名称。
 - 删除非当前账号。
-- 共用一套 `CODEX_HOME`，让 Codex 的 sessions、history、memory 和配置继续共享。
-- 使用 Windows DPAPI 为当前 Windows 用户加密保存账号凭据备份。
-- 监听 Codex `auth.json` 更新，并同步保存当前账号的最新凭据。
-- 为 CodexGauge 启动的 Codex 进程配置：
-  - 不使用代理；
-  - Windows / 系统代理；
-  - 自定义 HTTP / HTTPS 代理。
-- 配置自动刷新用量。
-- 网络不可用时保留上一次成功获取的用量数据。
-- 支持英文和简体中文，并可自动跟随系统语言。
-- 支持跟随系统、浅色和深色主题。
-- 主窗口关闭后继续在 Windows 系统托盘运行。
-- 可通过托盘恢复 CodexGauge，或从托盘菜单明确退出。
-- 检查应用新版本，并安装通过签名验证的 GitHub Releases 更新。
-- 在本地写入诊断日志用于排查问题，并避免主动记录认证 Token。
+- 所有账号共用一个 `CODEX_HOME`，因此 Codex 的会话、历史记录、Memory 和配置保持共享。
+- 使用 Windows DPAPI，并按当前 Windows 用户加密保存账号凭据备份。
+- 检测 Codex `auth.json` 的变化，并同步更新当前账号的凭据备份。
+- 切换账号前先验证目标账号凭据，验证失败时不会替换当前账号。
+- 支持从 30 秒到 5 小时的自动额度刷新间隔。
+- 网络不可用时保留最近一次成功获取的额度数据。
+- 支持无代理、Windows/系统代理和自定义 HTTP/HTTPS 代理。
+- 检查更新和下载更新时复用 CodexGauge 中配置的代理。
+- 支持英语和简体中文，并可自动跟随系统语言。
+- 支持系统、浅色和深色主题。
+- 关闭主窗口后继续在 Windows 系统托盘中运行。
+- 支持检查签名更新、显示下载进度，并通过 GitHub Releases 安装更新。
+- 本地写入诊断日志，且不会有意记录身份验证 Token。
 
-## 使用要求
+## 系统要求
 
 ### Windows
 
-CodexGauge 当前以 Windows 为主要目标平台。
+CodexGauge 当前主要面向 Windows。
 
 ### 官方 Codex CLI
 
-必须安装官方 OpenAI Codex CLI，并确保 `codex` 命令可以从 `PATH` 中访问。
+必须已安装官方 OpenAI Codex CLI，并确保可以通过 `PATH` 访问。
 
-检查：
+可通过以下命令确认：
 
 ```powershell
 codex --version
 ```
 
-如果 CodexGauge 无法检测到 Codex CLI，会阻止进入主界面，并提示用户先完成安装。
+如果 CodexGauge 未检测到 Codex CLI，会阻止进入主界面，并提示用户先完成安装。
 
-不要求安装 Codex Desktop / ChatGPT Desktop。
+不要求安装 Codex Desktop 或 ChatGPT Desktop。
 
-## 账号切换原理
+## 安装
 
-CodexGauge 使用一套共享的 Codex Home：
+从以下地址下载最新 Windows 安装程序：
 
-```text
-%USERPROFILE%\.codex
-```
+https://github.com/rfw/codex-gauge/releases/latest
 
-如果用户设置了 `CODEX_HOME`，则使用对应目录。
+下载后正常安装并启动 CodexGauge 即可。
 
-CodexGauge **不会**为每个账号永久创建一套独立的 Codex Home。sessions、history、memory、配置以及其他 Codex 本地状态继续共用，只在用户手动切换账号时替换当前认证凭据。
+> 如果安装程序尚未使用 Authenticode 代码签名，Windows 可能显示 SmartScreen 或“未知发布者”警告。
 
-切换前，CodexGauge 会先保存当前账号的最新凭据。每个账号的凭据备份使用 Windows DPAPI，并绑定当前 Windows 用户上下文进行加密。
+## 额度数据
 
-出于安全考虑，当检测到 Codex 正在运行时，CodexGauge 会阻止账号切换。
-
-## 用量数据
-
-CodexGauge 通过官方本地 Codex app-server 协议读取用量：
+CodexGauge 通过官方本地 Codex app-server 协议读取额度：
 
 ```text
 codex app-server --stdio
@@ -87,46 +89,80 @@ codex app-server --stdio
 account/rateLimits/read
 ```
 
-额度窗口根据实际时长识别，而不是直接假设 primary / secondary 的固定顺序：
+CodexGauge 根据额度窗口时长进行分类，而不是假设 primary / secondary 的固定顺序：
 
 - `300` 分钟 → 5 小时额度
 - `10080` 分钟 → 每周额度
 
-CodexGauge 不实现另一套私有用量 API 客户端。
+CodexGauge 不会另外实现一套私有的额度 API 客户端。
+
+### 重置时间显示
+
+CodexGauge 会按用户本地时间显示额度重置时间，并在所有已管理账号中突出显示最早的有效“下次重置”。
+
+如果某个账号的每周额度仍有剩余，则其 5 小时重置时间作为该账号的有效候选时间；如果每周额度已经耗尽，则改用每周额度的重置时间作为该账号的有效候选时间。
+
+顶部会比较所有账号未来有效的候选时间，并显示最早的一项。
+
+只有在 Codex 的额度响应中包含 Credits 信息时，CodexGauge 才显示剩余额度；如果返回的余额为 `0`，仍会正常显示 `0`。
+
+## 账号切换机制
+
+CodexGauge 使用一个共享的 Codex 主目录：
+
+```text
+%USERPROFILE%\.codex
+```
+
+或者使用 `CODEX_HOME` 指定的目录。
+
+CodexGauge **不会**为每个账号创建一个独立、永久的 Codex Home。所有账号共享会话、历史记录、Memory、配置和其他本地状态，只在切换时替换当前使用的身份验证凭据。
+
+切换账号前，CodexGauge 会先保存当前账号的最新凭据。保存的账号凭据备份会通过 Windows DPAPI，并按当前 Windows 用户进行加密。
+
+在替换主 Codex 身份验证状态之前，CodexGauge 会先在隔离的临时 Codex 环境中验证目标账号。如果目标账号登录已过期、被撤销，或者无法完成验证，当前账号将保持不变。
+
+出于安全考虑，当检测到 Codex 正在运行时，CodexGauge 会阻止账号切换。
+
+CodexGauge 不会根据额度状态自动轮换账号。
 
 ## 代理设置
 
 CodexGauge 支持三种代理模式。
 
-### 不使用代理
+### 无代理
 
-CodexGauge 会从其启动的 Codex 进程中清除代理环境变量，并关闭这些进程的 Codex 系统代理处理。
+CodexGauge 会从其启动的 Codex 进程中移除代理环境变量，并关闭这些进程对 Codex 系统代理机制的使用。
+
+检查更新和下载更新时也会强制直连，不使用代理。
 
 ### 系统代理
 
-CodexGauge 让其启动的 Codex 进程使用 Codex 支持的系统代理行为。
+CodexGauge 允许其启动的 Codex 进程和 Updater 使用 Windows/系统提供的代理行为。
 
 ### 自定义代理
 
-支持 HTTP 和 HTTPS，例如：
+CodexGauge 支持 HTTP 或 HTTPS 代理，例如：
 
 ```text
 http://127.0.0.1:7897
 ```
 
-或：
+或者：
 
 ```text
 https://proxy.example.com:443
 ```
 
-如果没有填写协议，CodexGauge 默认按 HTTP 处理。
+如果省略协议，CodexGauge 会按 HTTP 代理处理。
 
-CodexGauge 本身不提供代理/VPN 服务，不修改 Windows 全局代理，也不修改 `%USERPROFILE%\.codex\.env`。
+配置的自定义代理同样会用于检查更新以及从 GitHub Releases 下载更新文件。
+
+CodexGauge 本身不提供代理/VPN 服务，不会修改 Windows 全局代理配置，也不会修改 `%USERPROFILE%\.codex\.env`。
 
 ## 自动刷新
 
-自动刷新默认开启，默认间隔为 60 秒。
+自动刷新额度默认开启，默认间隔为 60 秒。
 
 界面提供以下预设：
 
@@ -135,21 +171,30 @@ CodexGauge 本身不提供代理/VPN 服务，不修改 Windows 全局代理，�
 - 2 分钟
 - 5 分钟
 - 10 分钟
+- 15 分钟
+- 30 分钟
+- 1 小时
+- 3 小时
+- 5 小时
 
-开启后，CodexGauge 会按设定间隔自动刷新用量。
+启用后，CodexGauge 会按所选间隔自动刷新额度。
 
-如果无法连接 ChatGPT，CodexGauge 会保留上一次成功获取的用量数据，并暂停自动刷新；连接恢复并成功重试后再继续刷新。
+如果无法连接 ChatGPT，CodexGauge 会保留最近一次成功获取的额度数据，并暂停自动刷新，直到重试成功。
+
+手动点击刷新后，会重新开始自动刷新计时。
 
 ## 语言
 
-CodexGauge 当前内置：
+CodexGauge 当前提供：
 
 - English
 - 简体中文
 
-默认选项为跟随 Windows 系统语言。
+默认语言选项会跟随 Windows 系统语言。
 
-用户手动选择语言后，会写入 CodexGauge 本地设置，并在下次启动时恢复。
+如果用户手动选择语言，该设置会保存在 CodexGauge 本地配置中，并在下次启动时恢复。
+
+原生系统托盘菜单也会跟随应用当前语言。
 
 ## 主题
 
@@ -159,57 +204,65 @@ CodexGauge 支持：
 - 浅色
 - 深色
 
-选择“跟随系统”时，CodexGauge 会跟随 Windows 的浅色/深色偏好。
+选择“跟随系统”时，CodexGauge 会跟随 Windows 的颜色模式偏好。
 
-主题切换立即生效，并保存在本地设置中。
+主题修改会立即生效，并保存在本地设置中。
+
+应用启动时，Tauri 主窗口会在语言和主题初始化期间保持隐藏，等 React 首帧完成渲染后再显示，从而避免深色模式启动时短暂出现白屏。
 
 ## 系统托盘
 
-点击窗口右上角关闭按钮或使用 `Alt+F4` 时，CodexGauge 不会直接退出，而是继续在 Windows 系统托盘运行。
+点击窗口关闭按钮或使用 `Alt+F4` 时，CodexGauge 不会退出，而是继续在 Windows 系统托盘中运行。
 
-第一次关闭主窗口时，CodexGauge 会先提示用户该行为；确认后，后续关闭将直接隐藏到托盘，不再重复提示。
+第一次关闭主窗口时，CodexGauge 会先说明这一行为，再隐藏窗口。该提示只显示一次。
 
 托盘支持：
 
-- 左键点击恢复并聚焦 CodexGauge；
-- `Open CodexGauge`；
-- `Quit`。
+- 左键单击恢复并聚焦 CodexGauge；
+- `显示CodexGauge`；
+- `退出`。
 
-只有通过 `Quit` 才会真正退出应用。
+选择简体中文后，托盘菜单会同步显示中文。
 
-普通“最小化”按钮仍然只是最小化到 Windows 任务栏。
+只有选择“退出”才会真正关闭 CodexGauge。
+
+普通最小化按钮仍会将 CodexGauge 最小化到 Windows 任务栏。
 
 ## 应用更新
 
-CodexGauge 使用 Tauri Updater，通过 GitHub Releases 分发经过签名验证的应用更新。
+CodexGauge 使用 Tauri Updater，通过 GitHub Releases 分发并安装经过签名的应用更新。
 
 应用支持：
 
-- 启动时自动检查一次更新；
-- 在 `设置 → 关于` 中手动检查更新；
+- 启动时自动检查更新；
+- 从 `设置 → 关于` 手动检查更新；
+- 在现有更新弹窗中显示下载进度；
 - 安装可用的签名更新；
-- 稍后处理；
+- 网络异常后重试；
+- 稍后更新；
 - 忽略某一个指定版本。
 
-“忽略此版本”只影响自动提醒。用户主动点击“检查更新”时，仍可以看到这个被忽略的版本。
+Updater 的网络请求会遵循 CodexGauge 当前配置的代理模式，包括更新检查和 GitHub Release 文件下载。
 
-Updater 更新产物必须经过加密签名。Updater 公钥可以嵌入应用配置，而签名私钥必须严格保密。
+忽略某个版本只会影响自动更新提示；手动检查更新时仍然可以检测到该版本。
+
+Updater 更新文件会经过加密签名验证。Updater 公钥嵌入在应用配置中，而签名私钥必须始终保密。
 
 ## 日志
 
-CodexGauge 会在本地写入诊断日志，用于排查网络、Updater、Proxy、账号切换、watcher 等问题。
+CodexGauge 会在本地写入诊断日志，用于排查问题。
 
-Windows 下通常位于：
+Windows 下，日志通常保存在应用本地日志目录：
 
 ```text
 %LOCALAPPDATA%\com.codexgauge.desktop\logs\
 ```
 
-对于详细内部错误，CodexGauge 可以把完整信息写入日志，而界面只显示更简洁的用户提示。
+详细的内部错误可以写入日志，同时界面只显示更简短、适合用户阅读的错误信息。
 
 诊断日志只保存在本地，不会自动上传。
 
-CodexGauge 不应主动记录 access token、refresh token 或完整 `auth.json` 内容。
+CodexGauge 不应有意记录身份验证 Token、Refresh Token 或完整的原始 `auth.json` 内容。
 
 ## 开发
 
@@ -219,13 +272,13 @@ CodexGauge 不应主动记录 access token、refresh token 或完整 `auth.json`
 bun install
 ```
 
-启动 Web 前端：
+运行 Web 前端：
 
 ```powershell
 bun run dev
 ```
 
-启动 Tauri 应用：
+运行 Tauri 应用：
 
 ```powershell
 bun tauri dev
@@ -237,7 +290,7 @@ bun tauri dev
 bun run build
 ```
 
-检查 Rust：
+Rust 检查：
 
 ```powershell
 cd src-tauri
@@ -245,12 +298,9 @@ cargo check
 cd ..
 ```
 
-构建 Windows 应用和安装包：
+构建 Windows 应用及安装程序：
 
 ```powershell
-$env:TAURI_SIGNING_PRIVATE_KEY="C:\Users\Administrator\.tauri\codex-gauge.key"
-$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
-
 bun tauri build
 ```
 
@@ -262,28 +312,29 @@ src-tauri\target\release\bundle\
 
 ## 安全与隐私
 
-- Local-first：CodexGauge 没有自己的应用后端。
+- 本地优先：CodexGauge 没有应用后端。
 - 默认不包含遥测。
-- 诊断日志保存在本地，不会自动上传。
-- 账号凭据备份通过 Windows DPAPI 为当前 Windows 用户加密。
-- CodexGauge 不通过本地 HTTP 服务暴露账号凭据。
-- CodexGauge 不实现基于额度的自动账号轮换。
-- CodexGauge 不提供共享凭据池或账号共享能力。
-- CodexGauge 不会主动把认证凭据以明文形式写入账号元数据。
+- 诊断日志仅保存在本地，不会自动上传。
+- 账号凭据备份使用 Windows DPAPI，并按当前 Windows 用户加密。
+- CodexGauge 不会通过本地 HTTP 服务暴露账号凭据。
+- CodexGauge 不会实现基于额度状态的自动账号轮换。
+- CodexGauge 不提供共享凭据池或账号共享功能。
+- CodexGauge 不会有意在明文账号元数据中保存身份验证凭据。
+- 安装更新前，会通过 Tauri Updater 的签名机制验证更新文件。
 
-如果发现与认证或凭据处理有关的安全漏洞，请避免在公开 Issue 中提交 Token、认证文件或其他敏感复现数据。
+如果你发现了与凭据处理或身份验证有关的安全漏洞，请不要在公开 Issue 中发布包含敏感信息的复现数据。
 
 ## 项目范围
 
-CodexGauge 面向由用户本人拥有并控制的账号，提供本地、手动的账号管理能力。
+CodexGauge 面向由用户本人拥有和控制的账号，用于手动管理这些账号。
 
-CodexGauge 的设计目标不包括：
+CodexGauge 不用于：
 
-- 在多个用户之间共享或汇集认证凭据；
-- 自动轮换账号以规避额度限制；
+- 在不同用户之间共享或汇集凭据；
+- 为规避额度限制而自动轮换账号；
 - 提供共享账号或凭据池；
 - 提供代理/VPN 服务；
-- 将自身描述或包装为 OpenAI 官方产品。
+- 冒充 OpenAI 官方产品。
 
 ## 许可证
 
@@ -291,6 +342,6 @@ MIT。详见 [LICENSE](LICENSE)。
 
 ## 商标声明
 
-CodexGauge 是独立开源项目，与 OpenAI 无隶属、合作、认证、赞助或官方背书关系。
+CodexGauge 是独立开源项目，与 OpenAI 无隶属关系，未获得 OpenAI 的认可、认证、背书或赞助。
 
-OpenAI 及其相关产品名称、Logo 和标识属于其相应权利人。CodexGauge 的应用身份中不使用 OpenAI Logo 或其他 OpenAI 品牌资产。
+OpenAI 及其相关产品名称、Logo 和商标均归其相应权利人所有。CodexGauge 的应用标识中未使用 OpenAI Logo 或品牌视觉资产。
