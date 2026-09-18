@@ -2,15 +2,15 @@
 
 [English](README.md) | **简体中文**
 
-<p align="center">
-  <img src="docs/images/main.png" alt="CodexGauge" width="600">
+<p style="text-align: center">
+  <img src="docs/images/main.png" alt="CodexGauge" width="700">
 </p>
 
-<p align="center">
+<p style="text-align: center">
   Windows 平台的本地 Codex 额度监控与多账号管理工具。
 </p>
 
-<p align="center">
+<p style="text-align: center">
   <a href="https://github.com/rfw/codex-gauge/releases/latest">下载 Windows 版</a>
 </p>
 

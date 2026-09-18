@@ -2,15 +2,15 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-<p align="center">
-  <img src="docs/images/main.png" alt="CodexGauge" width="600">
+<p style="text-align: center">
+  <img src="docs/images/main.png" alt="CodexGauge" width="700">
 </p>
 
-<p align="center">
+<p style="text-align: center">
   A local Codex usage dashboard and multi-account manager for Windows.
 </p>
 
-<p align="center">
+<p style="text-align: center">
   <a href="https://github.com/rfw/codex-gauge/releases/latest">Download for Windows</a>
 </p>
 
