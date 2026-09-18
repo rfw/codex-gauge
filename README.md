@@ -272,12 +272,6 @@ Install dependencies:
 bun install
 ```
 
-Run the web frontend:
-
-```powershell
-bun run dev
-```
-
 Run the Tauri application:
 
 ```powershell

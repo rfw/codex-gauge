@@ -272,12 +272,6 @@ CodexGauge 不应有意记录身份验证 Token、Refresh Token 或完整的原�
 bun install
 ```
 
-运行 Web 前端：
-
-```powershell
-bun run dev
-```
-
 运行 Tauri 应用：
 
 ```powershell
