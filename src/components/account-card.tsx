@@ -63,7 +63,11 @@ function AccountCardComponent({
   const creditBalance = account.credits?.unlimited
     ? t("credits.unlimited")
     : formatCreditBalance(account.credits?.balance ?? null, locale)
-
+  const isUnsubscribed =
+    !account.usageError &&
+    account.planType === "free" &&
+    !account.fiveHour &&
+    !account.weekly
 
   useEffect(() => {
     if (!isEditing) {
@@ -231,21 +235,32 @@ function AccountCardComponent({
             ) : null}
           </div>
 
-          <div className="mt-2 grid gap-2 sm:grid-cols-2">
-            <QuotaRow
-              label={t("quota.fiveHour")}
-              quota={account.fiveHour}
-              unavailableReason={account.usageError}
-              highlightReset={highlightNextReset === "fiveHour"}
-              showReset={!weeklyExhausted}
-            />
-            <QuotaRow
-              label={t("quota.weekly")}
-              quota={account.weekly}
-              unavailableReason={account.usageError}
-              highlightReset={highlightNextReset === "weekly"}
-            />
-          </div>
+          {isUnsubscribed ? (
+            <div className="mt-2 flex items-center justify-between gap-3 rounded-md border bg-muted/20 px-3 py-2">
+              <span className="text-sm font-medium text-muted-foreground">
+                {t("quota.codexUsage")}
+              </span>
+              <span className="text-sm text-muted-foreground">
+                {t("quota.notSubscribed")}
+              </span>
+            </div>
+          ) : (
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              <QuotaRow
+                label={t("quota.fiveHour")}
+                quota={account.fiveHour}
+                unavailableReason={account.usageError}
+                highlightReset={highlightNextReset === "fiveHour"}
+                showReset={!weeklyExhausted}
+              />
+              <QuotaRow
+                label={t("quota.weekly")}
+                quota={account.weekly}
+                unavailableReason={account.usageError}
+                highlightReset={highlightNextReset === "weekly"}
+              />
+            </div>
+          )}
 
           {creditBalance ? (
             <div className="flex items-center justify-between gap-3 px-0.5 border-t mt-2.5 pt-2.5">

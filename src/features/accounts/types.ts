@@ -27,6 +27,7 @@ export type CodexAccount = {
   label: string
   email?: string | null
   plan: string
+  planType?: string | null
   isActive: boolean
   fiveHour: QuotaWindow | null
   weekly: QuotaWindow | null

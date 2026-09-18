@@ -71,10 +71,10 @@ export const zhCN: Record<TranslationKey, string> = {
 
   "quota.fiveHour": "5 小时",
   "quota.weekly": "每周",
+  "quota.codexUsage": "Codex 额度",
   "quota.left": "剩余 {{percent}}%",
   "quota.unavailable": "不可用",
-  "quota.notProvided": "Codex 未提供",
-  "quota.notProvidedTitle": "Codex 未提供此额度信息。",
+  "quota.notSubscribed": "未订阅",
   "quota.resetTime": "重置时间：{{time}}",
   "quota.resetUnavailable": "重置时间不可用",
 

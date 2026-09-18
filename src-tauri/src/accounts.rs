@@ -73,6 +73,7 @@ struct AccountView {
     label: String,
     email: Option<String>,
     plan: String,
+    plan_type: Option<String>,
     is_active: bool,
     five_hour: Option<QuotaWindowView>,
     weekly: Option<QuotaWindowView>,
@@ -476,12 +477,19 @@ fn build_snapshot_with_usage(app: &AppHandle) -> Result<AccountsSnapshot, String
                 }
             };
 
+        let current_plan = usage
+            .plan_type
+            .as_deref()
+            .map(display_plan)
+            .unwrap_or_else(|| account.plan.clone());
+
         accounts.push(AccountView {
             is_active: active_id.as_deref() == Some(account.id.as_str()),
             id: account.id,
             label: account.label,
             email: account.email,
-            plan: account.plan,
+            plan: current_plan,
+            plan_type: usage.plan_type,
             five_hour: usage.five_hour,
             weekly: usage.weekly,
             credits: usage.credits,

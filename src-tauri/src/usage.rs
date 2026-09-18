@@ -24,6 +24,7 @@ const TEMP_CODEX_CONFIG: &str = r#"cli_auth_credentials_store = "file"
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct AccountUsage {
+    pub(crate) plan_type: Option<String>,
     pub(crate) five_hour: Option<QuotaWindowView>,
     pub(crate) weekly: Option<QuotaWindowView>,
     pub(crate) credits: Option<CreditBalanceView>,
@@ -493,6 +494,19 @@ fn parse_usage_response(result: &Value) -> Result<AccountUsage, String> {
     let snapshot = preferred_rate_limit_snapshot(result);
 
     let mut usage = AccountUsage::default();
+
+    usage.plan_type = snapshot
+        .and_then(|snapshot| snapshot.get("planType"))
+        .and_then(Value::as_str)
+        .or_else(|| {
+            result
+                .get("rateLimits")
+                .and_then(|rate_limits| rate_limits.get("planType"))
+                .and_then(Value::as_str)
+        })
+        .map(str::trim)
+        .filter(|plan_type| !plan_type.is_empty())
+        .map(str::to_string);
 
     if let Some(snapshot) = snapshot {
         for key in ["primary", "secondary"] {

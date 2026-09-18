@@ -40,13 +40,13 @@ function mergeUsage(
   if (!incoming.usageError) {
     return incoming
   }
-
   return {
     ...incoming,
     fiveHour: incoming.fiveHour ?? previous.fiveHour,
     weekly: incoming.weekly ?? previous.weekly,
     credits: incoming.credits ?? previous.credits,
     bankedResets: incoming.bankedResets ?? previous.bankedResets,
+    planType: incoming.planType ?? previous.planType,
   }
 }
 
@@ -72,8 +72,9 @@ function mergeAuthoritativeAccounts(
 
 /**
  * A refresh that started before an account metadata mutation completed is stale.
- * It may still contain useful usage values, but it must not overwrite account
- * membership, labels, active state, email, or plan with an older snapshot.
+ * It may still contain useful usage values, including the current Codex plan
+ * reported by rateLimits/read, but it must not overwrite account membership,
+ * labels, active state, or email with an older snapshot.
  */
 function mergeStaleRefreshUsage(
   previous: CodexAccount[],
@@ -91,11 +92,12 @@ function mergeStaleRefreshUsage(
     }
 
     const usage = mergeUsage(account, refreshed)
-
     return {
       ...account,
       fiveHour: usage.fiveHour,
       weekly: usage.weekly,
+      plan: usage.plan,
+      planType: usage.planType,
       credits: usage.credits,
       bankedResets: usage.bankedResets,
       usageError: usage.usageError,

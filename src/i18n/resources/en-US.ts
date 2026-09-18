@@ -69,10 +69,10 @@ export const enUS = {
 
   "quota.fiveHour": "5 hour",
   "quota.weekly": "Weekly",
+  "quota.codexUsage": "Codex usage",
   "quota.left": "{{percent}}% left",
   "quota.unavailable": "Unavailable",
-  "quota.notProvided": "Not provided by Codex",
-  "quota.notProvidedTitle": "This limit was not provided by Codex.",
+  "quota.notSubscribed": "Not subscribed",
   "quota.resetTime": "Reset time: {{time}}",
   "quota.resetUnavailable": "Reset time unavailable",
 

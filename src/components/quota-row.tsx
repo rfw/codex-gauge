@@ -24,7 +24,7 @@ export function QuotaRow({
   if (!quota) {
     const reason = unavailableReason
       ? localizeErrorMessage(unavailableReason, t)
-      : t("quota.notProvided")
+      : null
 
     return (
       <div className="rounded-md border bg-muted/20 px-3 py-2">
@@ -39,16 +39,14 @@ export function QuotaRow({
 
         <Progress value={0} className="mt-2 h-1.5 opacity-35" />
 
-        <p
-          className="mt-1.5 truncate text-xs text-muted-foreground"
-          title={
-            unavailableReason
-              ? reason
-              : t("quota.notProvidedTitle")
-          }
-        >
-          {reason}
-        </p>
+        {reason ? (
+          <p
+            className="mt-1.5 truncate text-xs text-muted-foreground"
+            title={reason}
+          >
+            {reason}
+          </p>
+        ) : null}
       </div>
     )
   }
