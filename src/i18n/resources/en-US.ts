@@ -224,6 +224,8 @@ export const enUS = {
   "errors.switchCredentialUnavailable": "The saved authentication for this account is unavailable. Sign in again and try again.",
   "errors.switchAuthExpired": "The sign-in for this account has expired. Sign in again before switching.",
   "errors.switchPreflightNetwork": "Unable to verify the target account. Check your network or proxy settings and try again.",
+  "errors.switchPreflightTimeout": "Target account verification timed out. Please try again.",
+  "errors.switchPreflightAppServer": "Codex could not verify the target account right now. Please try again later.",
   "errors.switchPreflightFailed": "Unable to verify the target account right now. Please try again later.",
   "errors.switchWriteFailed": "Unable to update the active Codex authentication. Check file permissions and try again.",
   "errors.switchVerificationFailed": "Account switch verification failed. The previous account was restored.",

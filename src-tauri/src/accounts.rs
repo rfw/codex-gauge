@@ -1135,31 +1135,28 @@ pub async fn switch_codex_account(
             let lower = error.to_ascii_lowercase();
 
             if lower.contains("pre-switch account validation failed") {
-                if lower.contains("unauthorized")
-                    || lower.contains("401")
-                    || lower.contains("authentication")
-                    || lower.contains("not authenticated")
-                    || lower.contains("not logged in")
-                    || lower.contains("refresh token")
-                    || lower.contains("token expired")
-                    || lower.contains("invalid_grant")
-                {
-                    Err(
+                let classified = classify_usage_error(&error);
+
+                match classified.kind {
+                    UsageErrorKind::Cli => Err("Codex CLI was not found.".to_string()),
+                    UsageErrorKind::Timeout => Err(
+                        "Target account verification timed out. Please try again.".to_string(),
+                    ),
+                    UsageErrorKind::Auth => Err(
                         "Stored account sign-in has expired. Re-add the account before switching."
                             .to_string(),
-                    )
-                } else if lower.contains("backend-api/wham/usage")
-                    || lower.contains("error sending request for url")
-                    || lower.contains("connect")
-                    || lower.contains("dns")
-                    || lower.contains("proxy")
-                {
-                    Err(
+                    ),
+                    UsageErrorKind::Network => Err(
                         "Unable to verify the target account. Check your network or proxy settings and try again."
                             .to_string(),
-                    )
-                } else {
-                    Err("Unable to verify the target account before switching.".to_string())
+                    ),
+                    UsageErrorKind::AppServer => Err(
+                        "Codex could not verify the target account right now. Please try again later."
+                            .to_string(),
+                    ),
+                    UsageErrorKind::Unknown => {
+                        Err("Unable to verify the target account before switching.".to_string())
+                    }
                 }
             } else if lower.contains("stored credential identity")
                 || lower.contains("credential")

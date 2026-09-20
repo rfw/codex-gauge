@@ -10,6 +10,10 @@ const exactErrors: Partial<Record<string, TranslationKey>> = {
     "errors.switchAuthExpired",
   "Unable to verify the target account. Check your network or proxy settings and try again.":
     "errors.switchPreflightNetwork",
+  "Target account verification timed out. Please try again.":
+    "errors.switchPreflightTimeout",
+  "Codex could not verify the target account right now. Please try again later.":
+    "errors.switchPreflightAppServer",
   "Unable to verify the target account before switching.":
     "errors.switchPreflightFailed",
   "Unable to update Codex authentication.": "errors.switchWriteFailed",
@@ -61,4 +65,15 @@ export function localizeErrorMessage(
   }
 
   return message
+}
+
+const networkOrProxyErrors = new Set([
+  "Unable to reach ChatGPT. Check Network proxy settings.",
+  "Unable to verify the target account. Check your network or proxy settings and try again.",
+])
+
+export function isNetworkOrProxyErrorMessage(
+  message: string | null | undefined,
+): boolean {
+  return Boolean(message && networkOrProxyErrors.has(message))
 }

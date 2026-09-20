@@ -13,7 +13,10 @@ import {
 import { Button } from "@/components/ui/button"
 import { useAccounts } from "@/features/accounts/use-accounts"
 import { useI18n } from "@/i18n"
-import { localizeErrorMessage } from "@/i18n/errors"
+import {
+  isNetworkOrProxyErrorMessage,
+  localizeErrorMessage,
+} from "@/i18n/errors"
 import {
   formatClockTime,
   formatPollingInterval,
@@ -299,12 +302,12 @@ function CodexGaugeApp() {
         </header>
 
         {networkError ? (
-          <div className="mb-2.5 flex items-center justify-between gap-3 rounded-md border border-amber-500/25 bg-amber-500/5 px-3 py-2">
+          <div className="mb-2.5 flex items-center justify-between gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2">
             <div className="min-w-0">
-              <p className="text-sm font-medium">
+              <p className="text-sm font-medium text-amber-700 dark:text-amber-400">
                 {t("app.networkErrorTitle")}
               </p>
-              <p className="mt-0.5 text-xs text-muted-foreground">
+              <p className="mt-0.5 text-xs text-amber-700/80 dark:text-amber-400/80">
                 {t("app.networkErrorDescription")}
               </p>
             </div>
@@ -334,7 +337,13 @@ function CodexGaugeApp() {
         ) : null}
 
         {error ? (
-          <div className="mb-2.5 rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+          <div
+            className={
+              isNetworkOrProxyErrorMessage(error)
+                ? "mb-2.5 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm font-medium text-amber-700 dark:text-amber-400"
+                : "mb-2.5 rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive"
+            }
+          >
             {localizeErrorMessage(error, t)}
           </div>
         ) : null}

@@ -264,7 +264,13 @@ function AccountCardComponent({
               </span>
             </div>
           ) : showUsageErrorOnly ? (
-            <div className="mt-2 rounded-md border bg-muted/20 px-3 py-2">
+            <div
+              className={
+                account.usageErrorKind === "network"
+                  ? "mt-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2"
+                  : "mt-2 rounded-md border bg-muted/20 px-3 py-2"
+              }
+            >
               <div className="flex items-center justify-between gap-3">
                 <span className="text-sm font-medium text-muted-foreground">
                   {t("quota.codexUsage")}
@@ -275,7 +281,11 @@ function AccountCardComponent({
               </div>
               <div className="mt-1.5 flex items-center justify-between gap-3">
                 <p
-                  className="min-w-0 text-xs text-muted-foreground"
+                  className={
+                    account.usageErrorKind === "network"
+                      ? "min-w-0 text-xs font-medium text-amber-700 dark:text-amber-400"
+                      : "min-w-0 text-xs text-muted-foreground"
+                  }
                   title={localizedUsageError ?? undefined}
                 >
                   {localizedUsageError}
@@ -295,7 +305,11 @@ function AccountCardComponent({
             <>
               {localizedUsageError ? (
                 <p
-                  className="mt-2 rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground"
+                  className={
+                    account.usageErrorKind === "network"
+                      ? "mt-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs font-medium text-amber-700 dark:text-amber-400"
+                      : "mt-2 rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground"
+                  }
                   title={localizedUsageError}
                 >
                   {localizedUsageError}
@@ -346,7 +360,7 @@ function AccountCardComponent({
           }
         }}
       >
-        <AlertDialogContent>
+        <AlertDialogContent className="mt-2">
           <AlertDialogHeader>
             <AlertDialogTitle>
               {t("account.switchTitle", { account: account.label })}

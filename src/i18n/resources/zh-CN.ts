@@ -226,6 +226,8 @@ export const zhCN: Record<TranslationKey, string> = {
   "errors.switchCredentialUnavailable": "该账号保存的认证信息不可用，请重新登录后再试。",
   "errors.switchAuthExpired": "该账号登录已失效，请重新登录后再切换。",
   "errors.switchPreflightNetwork": "无法验证目标账号，请检查网络或代理设置后重试。",
+  "errors.switchPreflightTimeout": "验证目标账号超时，请重试。",
+  "errors.switchPreflightAppServer": "Codex 暂时无法验证目标账号，请稍后重试。",
   "errors.switchPreflightFailed": "暂时无法验证目标账号，请稍后重试。",
   "errors.switchWriteFailed": "无法更新 Codex 当前认证信息，请检查文件权限后重试。",
   "errors.switchVerificationFailed": "账号切换验证失败，已恢复到之前的账号。",
