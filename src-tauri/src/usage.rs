@@ -68,10 +68,23 @@ pub(crate) fn validate_account_auth_for_switch(
     fs::write(temp.path().join("auth.json"), auth_bytes)
         .map_err(|error| format!("Failed to prepare temporary switch validation auth: {error}"))?;
 
-    query_rate_limits_with_proxy(temp.path(), &proxy)
+    let temp_auth_path = temp.path().join("auth.json");
+    let validation = query_rate_limits_with_proxy(temp.path(), &proxy);
+
+    // Even when validation fails, the app-server may already have refreshed
+    // auth.json. Preserve that refresh before the temporary home is deleted.
+    persist_refreshed_auth_if_available(
+        app,
+        account,
+        &temp_auth_path,
+        validation.is_ok(),
+        false,
+    )?;
+
+    validation
         .map_err(|error| format!("Pre-switch account validation failed: {error}"))?;
 
-    let refreshed_auth = fs::read(temp.path().join("auth.json"))
+    let refreshed_auth = fs::read(&temp_auth_path)
         .map_err(|error| format!("Failed to read refreshed switch validation auth: {error}"))?;
 
     let identity = accounts::parse_auth_identity(&refreshed_auth)
@@ -84,8 +97,6 @@ pub(crate) fn validate_account_auth_for_switch(
         );
     }
 
-    accounts::persist_account_auth(app, &identity, &refreshed_auth)?;
-
     Ok(refreshed_auth)
 }
 
@@ -95,18 +106,20 @@ fn read_active_account_usage(
     proxy: &ProxySettings,
 ) -> Result<AccountUsage, String> {
     let codex_home = accounts::main_codex_home(app)?;
-    let result = query_rate_limits_with_proxy(&codex_home, proxy)?;
+    let result = query_rate_limits_with_proxy(&codex_home, proxy);
 
-    let auth_path = codex_home.join("auth.json");
+    // The app-server may refresh auth.json before the rate-limits request
+    // succeeds or fails. Keep CodexGauge's encrypted backup synchronized
+    // regardless of the usage result so a refreshed token is not discarded.
+    persist_refreshed_auth_if_available(
+        app,
+        account,
+        &codex_home.join("auth.json"),
+        result.is_ok(),
+        true,
+    )?;
 
-    if let Ok(auth_bytes) = fs::read(auth_path) {
-        if let Ok(identity) = accounts::parse_auth_identity(&auth_bytes) {
-            if identity.id == account.id {
-                accounts::persist_account_auth(app, &identity, &auth_bytes)?;
-            }
-        }
-    }
-
+    let result = result?;
     parse_usage_response(&result)
 }
 
@@ -122,20 +135,97 @@ fn read_inactive_account_usage(
     fs::write(temp.path().join("config.toml"), TEMP_CODEX_CONFIG)
         .map_err(|error| format!("Failed to prepare temporary Codex config: {error}"))?;
 
-    fs::write(temp.path().join("auth.json"), &auth_bytes)
+    let temp_auth_path = temp.path().join("auth.json");
+    fs::write(&temp_auth_path, &auth_bytes)
         .map_err(|error| format!("Failed to prepare temporary Codex auth: {error}"))?;
 
-    let result = query_rate_limits_with_proxy(temp.path(), proxy)?;
+    let result = query_rate_limits_with_proxy(temp.path(), proxy);
 
-    if let Ok(updated_auth) = fs::read(temp.path().join("auth.json")) {
-        if let Ok(identity) = accounts::parse_auth_identity(&updated_auth) {
-            if identity.id == account.id {
-                accounts::persist_account_auth(app, &identity, &updated_auth)?;
+    // Do not lose a token refresh just because account/rateLimits/read later
+    // failed. This is especially important for inactive accounts because the
+    // temporary CODEX_HOME is deleted at the end of this function.
+    persist_refreshed_auth_if_available(
+        app,
+        account,
+        &temp_auth_path,
+        result.is_ok(),
+        false,
+    )?;
+
+    let result = result?;
+    parse_usage_response(&result)
+}
+
+fn persist_refreshed_auth_if_available(
+    app: &AppHandle,
+    account: &StoredAccount,
+    auth_path: &Path,
+    fail_on_persist_error: bool,
+    remember_as_active: bool,
+) -> Result<(), String> {
+    let updated_auth = match fs::read(auth_path) {
+        Ok(auth) => auth,
+        Err(error) => {
+            if fail_on_persist_error {
+                return Err(format!("Failed to read refreshed Codex auth: {error}"));
             }
+
+            log::warn!(
+                "Could not read refreshed Codex auth after a usage failure: {error}"
+            );
+            return Ok(());
+        }
+    };
+
+    let identity = match accounts::parse_auth_identity(&updated_auth) {
+        Ok(identity) => identity,
+        Err(error) => {
+            if fail_on_persist_error {
+                return Err(format!("Refreshed Codex authentication is invalid: {error}"));
+            }
+
+            log::warn!(
+                "Could not parse refreshed Codex auth after a usage failure: {error}"
+            );
+            return Ok(());
+        }
+    };
+
+    if identity.id != account.id {
+        let error =
+            "Refreshed Codex credential identity does not match the requested account.";
+
+        if fail_on_persist_error {
+            return Err(error.to_string());
+        }
+
+        log::warn!("{error}");
+        return Ok(());
+    }
+
+    if let Err(error) = accounts::persist_account_auth(app, &identity, &updated_auth) {
+        if fail_on_persist_error {
+            return Err(error);
+        }
+
+        log::warn!(
+            "Could not persist refreshed Codex auth after a usage failure: {error}"
+        );
+    }
+
+    if remember_as_active {
+        if let Err(error) = accounts::remember_active_auth(app, &identity, &updated_auth) {
+            if fail_on_persist_error {
+                return Err(error);
+            }
+
+            log::warn!(
+                "Could not update the last observed active Codex auth after a usage failure: {error}"
+            );
         }
     }
 
-    parse_usage_response(&result)
+    Ok(())
 }
 
 fn query_rate_limits_with_proxy(

@@ -22,6 +22,14 @@ export type BankedResets = {
   items: BankedReset[]
 }
 
+export type UsageErrorKind =
+  | "cli"
+  | "timeout"
+  | "auth"
+  | "network"
+  | "appServer"
+  | "unknown"
+
 export type CodexAccount = {
   id: string
   label: string
@@ -33,6 +41,7 @@ export type CodexAccount = {
   weekly: QuotaWindow | null
   credits: CreditBalance | null
   bankedResets: BankedResets | null
+  usageErrorKind?: UsageErrorKind | null
   usageError?: string | null
 }
 

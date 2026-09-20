@@ -26,14 +26,23 @@ const TEMP_CODEX_CONFIG: &str = r#"cli_auth_credentials_store = "file"
 
 pub struct AuthWatcherState {
     self_writes: Mutex<Vec<SelfWriteGuard>>,
+    last_observed_auth: Mutex<Option<ObservedAuth>>,
 }
 
 impl AuthWatcherState {
     pub fn new() -> Self {
         Self {
             self_writes: Mutex::new(Vec::new()),
+            last_observed_auth: Mutex::new(None),
         }
     }
+}
+
+#[derive(Debug, Clone)]
+struct ObservedAuth {
+    account_id: String,
+    auth_bytes: Vec<u8>,
+    hash: String,
 }
 
 #[derive(Debug)]
@@ -79,7 +88,25 @@ struct AccountView {
     weekly: Option<QuotaWindowView>,
     credits: Option<CreditBalanceView>,
     banked_resets: Option<BankedResetsView>,
+    usage_error_kind: Option<UsageErrorKind>,
     usage_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+enum UsageErrorKind {
+    Cli,
+    Timeout,
+    Auth,
+    Network,
+    AppServer,
+    Unknown,
+}
+
+#[derive(Debug, Clone)]
+struct ClassifiedUsageError {
+    kind: UsageErrorKind,
+    message: &'static str,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -295,6 +322,17 @@ pub async fn switch_codex_account(
         }
 
         let previous_auth = fs::read(&main_auth_path).ok();
+
+        // Re-snapshot the current main credential immediately before replacing
+        // it. Target validation can take time, and the active app-server may
+        // have refreshed auth.json since the earlier import.
+        if let Some(previous) = previous_auth.as_deref() {
+            if let Ok(previous_identity) = parse_auth_identity(previous) {
+                persist_account_auth(&app, &previous_identity, previous)?;
+                remember_observed_auth(&app, &previous_identity, previous)?;
+            }
+        }
+
         let expected_hash = auth_content_hash(&target_auth);
 
         install_self_write_guard(&app, &expected_hash)?;
@@ -308,12 +346,19 @@ pub async fn switch_codex_account(
             .and_then(|bytes| parse_auth_identity(&bytes));
 
         match verification {
-            Ok(identity) if identity.id == target.id => build_snapshot_with_usage(&app),
+            Ok(identity) if identity.id == target.id => {
+                remember_observed_auth(&app, &identity, &target_auth)?;
+                build_snapshot_with_usage(&app)
+            }
             Ok(_) | Err(_) => {
                 if let Some(previous) = previous_auth {
                     let rollback_hash = auth_content_hash(&previous);
                     let _ = install_self_write_guard(&app, &rollback_hash);
                     let _ = atomic_write(&main_auth_path, &previous);
+
+                    if let Ok(previous_identity) = parse_auth_identity(&previous) {
+                        let _ = remember_observed_auth(&app, &previous_identity, &previous);
+                    }
                 } else {
                     let _ = fs::remove_file(&main_auth_path);
                 }
@@ -464,7 +509,7 @@ fn build_snapshot_with_usage(app: &AppHandle) -> Result<AccountsSnapshot, String
     let mut accounts = Vec::with_capacity(metadata.accounts.len());
 
     for account in metadata.accounts {
-        let (usage, usage_error) =
+        let (usage, classified_error) =
             match usage::read_account_usage(app, &account, active_id.as_deref()) {
                 Ok(usage) => (usage, None),
                 Err(error) => {
@@ -494,7 +539,11 @@ fn build_snapshot_with_usage(app: &AppHandle) -> Result<AccountsSnapshot, String
             weekly: usage.weekly,
             credits: usage.credits,
             banked_resets: usage.banked_resets,
-            usage_error,
+            usage_error_kind: classified_error
+                .as_ref()
+                .map(|error| error.kind.clone()),
+            usage_error: classified_error
+                .map(|error| error.message.to_string()),
         });
     }
 
@@ -504,41 +553,80 @@ fn build_snapshot_with_usage(app: &AppHandle) -> Result<AccountsSnapshot, String
     })
 }
 
-fn classify_usage_error(error: &str) -> String {
+fn classify_usage_error(error: &str) -> ClassifiedUsageError {
     let lower = error.to_ascii_lowercase();
 
     if lower.contains("not found")
         && (lower.contains("codex") || lower.contains("path"))
     {
-        return "Codex CLI was not found.".to_string();
+        return ClassifiedUsageError {
+            kind: UsageErrorKind::Cli,
+            message: "Codex CLI was not found.",
+        };
     }
 
     if lower.contains("timed out") {
-        return "Codex did not return usage data in time.".to_string();
+        return ClassifiedUsageError {
+            kind: UsageErrorKind::Timeout,
+            message: "Codex did not return usage data in time.",
+        };
     }
 
+    // Authentication failures must be checked before transport failures because
+    // app-server diagnostics can include the backend URL for 401/token errors.
     if lower.contains("authentication")
         || lower.contains("auth.json")
         || lower.contains("id_token")
+        || lower.contains("access token")
+        || lower.contains("refresh token")
+        || lower.contains("invalid_token")
+        || lower.contains("unauthorized")
+        || lower.contains("login required")
+        || lower.contains("not logged in")
         || lower.contains("credential")
+        || lower.contains("status 401")
+        || lower.contains("http 401")
     {
-        return "Codex authentication could not be verified.".to_string();
+        return ClassifiedUsageError {
+            kind: UsageErrorKind::Auth,
+            message: "Codex authentication could not be verified.",
+        };
     }
 
-    if lower.contains("backend-api/wham/usage")
-        || lower.contains("error sending request for url")
-        || lower.contains("connect")
+    // Keep network classification deliberately narrow. A backend endpoint name
+    // alone is not evidence of a connectivity problem; HTTP/auth failures often
+    // contain the same URL.
+    if lower.contains("error sending request for url")
+        || lower.contains("connection refused")
+        || lower.contains("connection reset")
+        || lower.contains("connection aborted")
+        || lower.contains("connection timed out")
+        || lower.contains("failed to connect")
         || lower.contains("dns")
-        || lower.contains("proxy")
+        || lower.contains("failed to lookup address")
+        || lower.contains("name resolution")
+        || lower.contains("proxy error")
+        || lower.contains("proxy connect")
+        || lower.contains("tls error")
+        || lower.contains("certificate verify")
     {
-        return "Unable to reach ChatGPT. Check Network proxy settings.".to_string();
+        return ClassifiedUsageError {
+            kind: UsageErrorKind::Network,
+            message: "Unable to reach ChatGPT. Check Network proxy settings.",
+        };
     }
 
     if lower.contains("app-server") {
-        return "Codex app-server could not provide usage data.".to_string();
+        return ClassifiedUsageError {
+            kind: UsageErrorKind::AppServer,
+            message: "Codex app-server could not provide usage data.",
+        };
     }
 
-    "Usage data is temporarily unavailable.".to_string()
+    ClassifiedUsageError {
+        kind: UsageErrorKind::Unknown,
+        message: "Usage data is temporarily unavailable.",
+    }
 }
 
 fn auth_watch_loop(app: AppHandle, codex_home: PathBuf) -> Result<(), String> {
@@ -552,6 +640,13 @@ fn auth_watch_loop(app: AppHandle, codex_home: PathBuf) -> Result<(), String> {
     watcher
         .watch(&codex_home, RecursiveMode::NonRecursive)
         .map_err(|error| format!("Failed to watch Codex home: {error}"))?;
+
+    // Capture the currently active auth only after the filesystem watcher is
+    // installed. This gives us a last-known-good handoff snapshot before an
+    // external `codex login` replaces ~/.codex/auth.json with another account.
+    if let Err(error) = initialize_observed_auth(&app) {
+        log::warn!("Could not initialize the active Codex auth snapshot: {error}");
+    }
 
     loop {
         let first = rx
@@ -609,17 +704,15 @@ fn handle_auth_json_change(app: &AppHandle) -> Result<(), String> {
     let auth_bytes = match fs::read(&auth_path) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            // Keep the last observed credential in memory. Codex login can
+            // briefly remove/replace auth.json, and that snapshot is exactly
+            // what lets us preserve the previous account when the new file
+            // belongs to a different account.
             emit_accounts_changed(app);
             return Ok(());
         }
         Err(error) => return Err(format!("Failed to read changed auth.json: {error}")),
     };
-
-    let hash = auth_content_hash(&auth_bytes);
-
-    if is_expected_self_write(app, &hash)? {
-        return Ok(());
-    }
 
     let identity = match parse_auth_identity(&auth_bytes) {
         Ok(identity) => identity,
@@ -629,8 +722,132 @@ fn handle_auth_json_change(app: &AppHandle) -> Result<(), String> {
         }
     };
 
+    let hash = auth_content_hash(&auth_bytes);
+
+    if is_expected_self_write(app, &hash)? {
+        // Internal account switches deliberately suppress normal watcher work,
+        // but the last-observed snapshot still has to follow the main auth file
+        // or the next external login could hand off the wrong account.
+        remember_observed_auth(app, &identity, &auth_bytes)?;
+        return Ok(());
+    }
+
+    handoff_previous_observed_auth(app, &identity)?;
     persist_account_auth(app, &identity, &auth_bytes)?;
+    remember_observed_auth(app, &identity, &auth_bytes)?;
     emit_accounts_changed(app);
+
+    Ok(())
+}
+
+fn initialize_observed_auth(app: &AppHandle) -> Result<(), String> {
+    let auth_path = main_codex_home(app)?.join("auth.json");
+
+    let auth_bytes = match fs::read(&auth_path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => {
+            return Err(format!(
+                "Failed to read current Codex authentication for watcher initialization: {error}"
+            ))
+        }
+    };
+
+    let identity = match parse_auth_identity(&auth_bytes) {
+        Ok(identity) => identity,
+        Err(_) => return Ok(()),
+    };
+
+    persist_account_auth(app, &identity, &auth_bytes)?;
+    remember_observed_auth(app, &identity, &auth_bytes)
+}
+
+fn handoff_previous_observed_auth(
+    app: &AppHandle,
+    next_identity: &AuthIdentity,
+) -> Result<(), String> {
+    let previous = {
+        let state = app.state::<AuthWatcherState>();
+        let observed = state
+            .last_observed_auth
+            .lock()
+            .map_err(|_| "Auth watcher observed-auth lock was poisoned.".to_string())?;
+
+        observed.clone()
+    };
+
+    let Some(previous) = previous else {
+        return Ok(());
+    };
+
+    if previous.account_id == next_identity.id {
+        return Ok(());
+    }
+
+    let previous_identity = match parse_auth_identity(&previous.auth_bytes) {
+        Ok(identity) if identity.id == previous.account_id => identity,
+        Ok(_) => {
+            log::warn!(
+                "Skipped active-auth handoff because the last observed credential identity changed unexpectedly."
+            );
+            return Ok(());
+        }
+        Err(error) => {
+            log::warn!(
+                "Skipped active-auth handoff because the last observed credential could not be parsed: {error}"
+            );
+            return Ok(());
+        }
+    };
+
+    if let Err(error) = persist_account_auth(app, &previous_identity, &previous.auth_bytes) {
+        // Do not discard the newly logged-in account just because preserving
+        // the previous backup failed. Keep the error visible in diagnostics.
+        log::error!(
+            "Could not preserve the previous active Codex credential during account handoff: {error}"
+        );
+    } else {
+        log::info!(
+            "Preserved the previous active Codex credential before auth.json switched accounts"
+        );
+    }
+
+    Ok(())
+}
+
+pub(crate) fn remember_active_auth(
+    app: &AppHandle,
+    identity: &AuthIdentity,
+    auth_bytes: &[u8],
+) -> Result<(), String> {
+    remember_observed_auth(app, identity, auth_bytes)
+}
+
+fn remember_observed_auth(
+    app: &AppHandle,
+    identity: &AuthIdentity,
+    auth_bytes: &[u8],
+) -> Result<(), String> {
+    let hash = auth_content_hash(auth_bytes);
+    let state = app.state::<AuthWatcherState>();
+    let mut observed = state
+        .last_observed_auth
+        .lock()
+        .map_err(|_| "Auth watcher observed-auth lock was poisoned.".to_string())?;
+
+    if observed
+        .as_ref()
+        .map(|current| current.account_id == identity.id && current.hash == hash)
+        .unwrap_or(false)
+    {
+        return Ok(());
+    }
+
+    *observed = Some(ObservedAuth {
+        account_id: identity.id.clone(),
+        auth_bytes: auth_bytes.to_vec(),
+        hash,
+    });
 
     Ok(())
 }
@@ -756,7 +973,8 @@ fn import_current_account_if_needed(app: &AppHandle) -> Result<(), String> {
         Err(_) => return Ok(()),
     };
 
-    persist_account_auth(app, &identity, &auth_bytes)
+    persist_account_auth(app, &identity, &auth_bytes)?;
+    remember_observed_auth(app, &identity, &auth_bytes)
 }
 
 pub(crate) fn persist_account_auth(

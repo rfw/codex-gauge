@@ -1,13 +1,11 @@
 import { Progress } from "@/components/ui/progress"
 import type { QuotaWindow } from "@/features/accounts/types"
 import { useI18n } from "@/i18n"
-import { localizeErrorMessage } from "@/i18n/errors"
 import { formatResetTime } from "@/lib/format"
 
 type QuotaRowProps = {
   label: string
   quota: QuotaWindow | null
-  unavailableReason?: string | null
   highlightReset?: boolean
   showReset?: boolean
 }
@@ -15,17 +13,12 @@ type QuotaRowProps = {
 export function QuotaRow({
   label,
   quota,
-  unavailableReason,
   highlightReset = false,
   showReset = true,
 }: QuotaRowProps) {
   const { locale, t } = useI18n()
 
   if (!quota) {
-    const reason = unavailableReason
-      ? localizeErrorMessage(unavailableReason, t)
-      : null
-
     return (
       <div className="rounded-md border bg-muted/20 px-3 py-2">
         <div className="flex items-center justify-between gap-3">
@@ -38,15 +31,6 @@ export function QuotaRow({
         </div>
 
         <Progress value={0} className="mt-2 h-1.5 opacity-35" />
-
-        {reason ? (
-          <p
-            className="mt-1.5 truncate text-xs text-muted-foreground"
-            title={reason}
-          >
-            {reason}
-          </p>
-        ) : null}
       </div>
     )
   }

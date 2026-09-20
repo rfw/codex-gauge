@@ -27,10 +27,8 @@ const DEFAULT_REFRESH_SETTINGS: RefreshSettings = {
   intervalSeconds: 60,
 }
 
-function isNetworkUsageError(message?: string | null) {
-  return Boolean(
-    message?.includes("Unable to reach ChatGPT"),
-  )
+function isNetworkUsageError(account: CodexAccount) {
+  return account.usageErrorKind === "network"
 }
 
 function mergeUsage(
@@ -42,6 +40,7 @@ function mergeUsage(
   }
   return {
     ...incoming,
+    plan: incoming.planType ? incoming.plan : previous.plan,
     fiveHour: incoming.fiveHour ?? previous.fiveHour,
     weekly: incoming.weekly ?? previous.weekly,
     credits: incoming.credits ?? previous.credits,
@@ -100,14 +99,18 @@ function mergeStaleRefreshUsage(
       planType: usage.planType,
       credits: usage.credits,
       bankedResets: usage.bankedResets,
+      usageErrorKind: usage.usageErrorKind,
       usageError: usage.usageError,
     }
   })
 }
 
-function snapshotHasNetworkError(snapshot: AccountsSnapshot) {
-  return snapshot.accounts.some((account) =>
-    isNetworkUsageError(account.usageError),
+function snapshotHasGlobalNetworkError(snapshot: AccountsSnapshot) {
+  return (
+    snapshot.accounts.length > 0 &&
+    snapshot.accounts.every((account) =>
+      isNetworkUsageError(account),
+    )
   )
 }
 
@@ -143,9 +146,10 @@ export function useAccounts() {
       ),
     )
 
-    const hasNetworkError = snapshotHasNetworkError(snapshot)
+    const hasGlobalNetworkError =
+      snapshotHasGlobalNetworkError(snapshot)
 
-    if (hasNetworkError) {
+    if (hasGlobalNetworkError) {
       setAutoRefreshPaused(true)
     } else {
       setAutoRefreshPaused(false)
@@ -174,9 +178,10 @@ export function useAccounts() {
         )
       }
 
-      const hasNetworkError = snapshotHasNetworkError(snapshot)
+      const hasGlobalNetworkError =
+        snapshotHasGlobalNetworkError(snapshot)
 
-      if (hasNetworkError) {
+      if (hasGlobalNetworkError) {
         setAutoRefreshPaused(true)
       } else {
         setAutoRefreshPaused(false)
@@ -454,9 +459,11 @@ export function useAccounts() {
     }
   }, [runRefresh])
 
-  const networkError = accounts
-    .map((account) => account.usageError)
-    .find((message) => isNetworkUsageError(message)) ?? null
+  const networkError =
+    accounts.length > 0 &&
+    accounts.every((account) => isNetworkUsageError(account))
+      ? accounts.find((account) => account.usageError)?.usageError ?? null
+      : null
 
   return {
     accounts,

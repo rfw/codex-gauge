@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/tooltip"
 import type { CodexAccount } from "@/features/accounts/types"
 import { useI18n } from "@/i18n"
+import { localizeErrorMessage } from "@/i18n/errors"
 import { formatCreditBalance } from "@/lib/format"
 
 type AccountCardProps = {
@@ -68,6 +69,13 @@ function AccountCardComponent({
     account.planType === "free" &&
     !account.fiveHour &&
     !account.weekly
+  const localizedUsageError = account.usageError
+    ? localizeErrorMessage(account.usageError, t)
+    : null
+  const hasQuotaWindow = Boolean(account.fiveHour || account.weekly)
+  const showUsageErrorOnly = Boolean(
+    localizedUsageError && !hasQuotaWindow,
+  )
 
   useEffect(() => {
     if (!isEditing) {
@@ -244,22 +252,48 @@ function AccountCardComponent({
                 {t("quota.notSubscribed")}
               </span>
             </div>
-          ) : (
-            <div className="mt-2 grid gap-2 sm:grid-cols-2">
-              <QuotaRow
-                label={t("quota.fiveHour")}
-                quota={account.fiveHour}
-                unavailableReason={account.usageError}
-                highlightReset={highlightNextReset === "fiveHour"}
-                showReset={!weeklyExhausted}
-              />
-              <QuotaRow
-                label={t("quota.weekly")}
-                quota={account.weekly}
-                unavailableReason={account.usageError}
-                highlightReset={highlightNextReset === "weekly"}
-              />
+          ) : showUsageErrorOnly ? (
+            <div className="mt-2 rounded-md border bg-muted/20 px-3 py-2">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm font-medium text-muted-foreground">
+                  {t("quota.codexUsage")}
+                </span>
+                <span className="text-sm text-muted-foreground">
+                  {t("quota.unavailable")}
+                </span>
+              </div>
+              <p
+                className="mt-1.5 text-xs text-muted-foreground"
+                title={localizedUsageError ?? undefined}
+              >
+                {localizedUsageError}
+              </p>
             </div>
+          ) : (
+            <>
+              {localizedUsageError ? (
+                <p
+                  className="mt-2 rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground"
+                  title={localizedUsageError}
+                >
+                  {localizedUsageError}
+                </p>
+              ) : null}
+
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                <QuotaRow
+                  label={t("quota.fiveHour")}
+                  quota={account.fiveHour}
+                  highlightReset={highlightNextReset === "fiveHour"}
+                  showReset={!weeklyExhausted}
+                />
+                <QuotaRow
+                  label={t("quota.weekly")}
+                  quota={account.weekly}
+                  highlightReset={highlightNextReset === "weekly"}
+                />
+              </div>
+            </>
           )}
 
           {creditBalance ? (
