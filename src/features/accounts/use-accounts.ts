@@ -8,10 +8,13 @@ import { listen } from "@tauri-apps/api/event"
 
 import {
   addCodexAccount,
+  cancelReauthenticateCodexAccount,
   deleteCodexAccount,
   getAccounts,
+  pollReauthenticateCodexAccount,
   renameCodexAccount,
   setActiveAccount,
+  startReauthenticateCodexAccount,
 } from "@/features/accounts/account-service"
 import type {
   AccountsSnapshot,
@@ -38,6 +41,21 @@ function mergeUsage(
   if (!incoming.usageError) {
     return incoming
   }
+
+  // Authentication/CLI failures are authoritative: keeping old quota values
+  // would make an invalid account look current (for example, showing a stale
+  // 4% after the stored credential has been revoked). Preserve last-known
+  // usage only for transient service/transport failures.
+  const preservePreviousUsage =
+    incoming.usageErrorKind === "network" ||
+    incoming.usageErrorKind === "timeout" ||
+    incoming.usageErrorKind === "appServer" ||
+    incoming.usageErrorKind === "unknown"
+
+  if (!preservePreviousUsage) {
+    return incoming
+  }
+
   return {
     ...incoming,
     plan: incoming.planType ? incoming.plan : previous.plan,
@@ -127,6 +145,7 @@ export function useAccounts() {
 
   const refreshPromiseRef = useRef<Promise<void> | null>(null)
   const metadataRevisionRef = useRef(0)
+  const usageRevisionRef = useRef(0)
   const pendingLabelsRef = useRef(new Map<string, string>())
 
   const beginMetadataMutation = useCallback(() => {
@@ -135,6 +154,16 @@ export function useAccounts() {
 
   const completeMetadataMutation = useCallback(() => {
     metadataRevisionRef.current += 1
+  }, [])
+
+  const beginUsageMutation = useCallback(() => {
+    metadataRevisionRef.current += 1
+    usageRevisionRef.current += 1
+  }, [])
+
+  const completeUsageMutation = useCallback(() => {
+    metadataRevisionRef.current += 1
+    usageRevisionRef.current += 1
   }, [])
 
   const applySnapshot = useCallback((snapshot: AccountsSnapshot) => {
@@ -160,7 +189,22 @@ export function useAccounts() {
   }, [])
 
   const applyRefreshSnapshot = useCallback(
-    (snapshot: AccountsSnapshot, startedMetadataRevision: number) => {
+    (
+      snapshot: AccountsSnapshot,
+      startedMetadataRevision: number,
+      startedUsageRevision: number,
+    ) => {
+      const isUsageStale =
+        startedUsageRevision !== usageRevisionRef.current
+
+      // Account switching, add/delete, and reauthentication can change which
+      // credential a usage request represents. Never let a refresh that began
+      // before or during one of those mutations overwrite the authoritative
+      // snapshot returned by the mutation itself.
+      if (isUsageStale) {
+        return
+      }
+
       const isMetadataStale =
         startedMetadataRevision !== metadataRevisionRef.current
 
@@ -199,13 +243,18 @@ export function useAccounts() {
     }
 
     const startedMetadataRevision = metadataRevisionRef.current
+    const startedUsageRevision = usageRevisionRef.current
 
     const request = (async () => {
       setIsRefreshing(true)
 
       try {
         const snapshot = await getAccounts()
-        applyRefreshSnapshot(snapshot, startedMetadataRevision)
+        applyRefreshSnapshot(
+          snapshot,
+          startedMetadataRevision,
+          startedUsageRevision,
+        )
       } catch (cause) {
         setError(
           cause instanceof Error
@@ -238,14 +287,14 @@ export function useAccounts() {
 
   const switchAccount = useCallback(async (accountId: string) => {
     setError(null)
-    beginMetadataMutation()
+    beginUsageMutation()
 
     try {
       const snapshot = await setActiveAccount(accountId)
-      completeMetadataMutation()
+      completeUsageMutation()
       applySnapshot(snapshot)
     } catch (cause) {
-      completeMetadataMutation()
+      completeUsageMutation()
 
       const message =
         typeof cause === "string"
@@ -257,7 +306,7 @@ export function useAccounts() {
       setError(message)
       throw cause
     }
-  }, [applySnapshot, beginMetadataMutation, completeMetadataMutation])
+  }, [applySnapshot, beginUsageMutation, completeUsageMutation])
 
   const renameAccount = useCallback(
     async (accountId: string, label: string) => {
@@ -319,14 +368,14 @@ export function useAccounts() {
 
   const addAccount = useCallback(async () => {
     setError(null)
-    beginMetadataMutation()
+    beginUsageMutation()
 
     try {
       const snapshot = await addCodexAccount()
-      completeMetadataMutation()
+      completeUsageMutation()
       applySnapshot(snapshot)
     } catch (cause) {
-      completeMetadataMutation()
+      completeUsageMutation()
 
       const message =
         cause instanceof Error
@@ -336,18 +385,40 @@ export function useAccounts() {
       setError(message)
       throw cause
     }
-  }, [applySnapshot, beginMetadataMutation, completeMetadataMutation])
+  }, [applySnapshot, beginUsageMutation, completeUsageMutation])
+
+  const startReauthentication = useCallback(async (accountId: string) => {
+    return startReauthenticateCodexAccount(accountId)
+  }, [])
+
+  const pollReauthentication = useCallback(async (sessionId: string) => {
+    const response = await pollReauthenticateCodexAccount(sessionId)
+
+    if (response.status === "succeeded" && response.snapshot) {
+      // Make every usage request that started before sign-in completion stale
+      // before applying the authoritative post-login snapshot.
+      beginUsageMutation()
+      completeUsageMutation()
+      applySnapshot(response.snapshot)
+    }
+
+    return response
+  }, [applySnapshot, beginUsageMutation, completeUsageMutation])
+
+  const cancelReauthentication = useCallback(async (sessionId: string) => {
+    await cancelReauthenticateCodexAccount(sessionId)
+  }, [])
 
   const deleteAccount = useCallback(async (accountId: string) => {
     setError(null)
-    beginMetadataMutation()
+    beginUsageMutation()
 
     try {
       const snapshot = await deleteCodexAccount(accountId)
-      completeMetadataMutation()
+      completeUsageMutation()
       applySnapshot(snapshot)
     } catch (cause) {
-      completeMetadataMutation()
+      completeUsageMutation()
 
       const message =
         cause instanceof Error
@@ -357,7 +428,7 @@ export function useAccounts() {
       setError(message)
       throw cause
     }
-  }, [applySnapshot, beginMetadataMutation, completeMetadataMutation])
+  }, [applySnapshot, beginUsageMutation, completeUsageMutation])
 
   const updateRefreshSettings = useCallback(
     async (settings: RefreshSettings) => {
@@ -478,6 +549,9 @@ export function useAccounts() {
     switchAccount,
     renameAccount,
     addAccount,
+    startReauthentication,
+    pollReauthentication,
+    cancelReauthentication,
     deleteAccount,
     updateRefreshSettings,
   }

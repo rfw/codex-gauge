@@ -46,6 +46,7 @@ pub fn run() {
             tray::setup_tray(app)?;
 
             app.manage(accounts::AuthWatcherState::new());
+            app.manage(accounts::ReauthSessionState::new());
 
             if runtime::codex_cli_status().codex_cli_installed {
                 if let Err(error) = accounts::start_auth_watcher(app.handle().clone()) {
@@ -70,6 +71,9 @@ pub fn run() {
             tray::update_tray_menu_labels,
             accounts::list_codex_accounts,
             accounts::add_codex_account,
+            accounts::start_reauthenticate_codex_account,
+            accounts::poll_reauthenticate_codex_account,
+            accounts::cancel_reauthenticate_codex_account,
             accounts::rename_codex_account,
             accounts::switch_codex_account,
             accounts::delete_codex_account,

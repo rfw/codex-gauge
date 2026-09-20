@@ -3,13 +3,14 @@ use base64::engine::general_purpose::{URL_SAFE, URL_SAFE_NO_PAD};
 use base64::Engine;
 use notify::{Event, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+use std::collections::{HashMap, VecDeque};
 use std::env;
 use std::fs;
-use std::io::Write;
+use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitStatus, Stdio};
+use std::process::{Child, ChildStdin, Command, ExitStatus, Stdio};
 use std::sync::{mpsc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
@@ -23,6 +24,10 @@ const WATCH_DEBOUNCE: Duration = Duration::from_millis(250);
 const SELF_WRITE_TTL: Duration = Duration::from_secs(5);
 const TEMP_CODEX_CONFIG: &str = r#"cli_auth_credentials_store = "file"
 "#;
+const REAUTH_LOGIN_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+const LOGIN_APP_SERVER_RESPONSE_TIMEOUT: Duration = Duration::from_secs(10);
+const LOGIN_PROCESS_POLL_INTERVAL: Duration = Duration::from_millis(100);
+const LOGIN_MAX_STDERR_LINES: usize = 12;
 
 pub struct AuthWatcherState {
     self_writes: Mutex<Vec<SelfWriteGuard>>,
@@ -36,6 +41,55 @@ impl AuthWatcherState {
             last_observed_auth: Mutex::new(None),
         }
     }
+}
+
+
+pub struct ReauthSessionState {
+    sessions: Mutex<HashMap<String, ReauthSession>>,
+}
+
+impl ReauthSessionState {
+    pub fn new() -> Self {
+        Self {
+            sessions: Mutex::new(HashMap::new()),
+        }
+    }
+}
+
+struct ReauthSession {
+    account_id: String,
+    login_id: String,
+    started_at: Instant,
+    _temp: tempfile::TempDir,
+    child: Child,
+    stdin: ChildStdin,
+    stdout_rx: mpsc::Receiver<String>,
+    stderr_rx: mpsc::Receiver<String>,
+    diagnostics: VecDeque<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReauthStartResponse {
+    session_id: String,
+    auth_url: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReauthPollResponse {
+    status: ReauthPollStatus,
+    snapshot: Option<AccountsSnapshot>,
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ReauthPollStatus {
+    Pending,
+    Succeeded,
+    Failed,
+    TimedOut,
 }
 
 #[derive(Debug, Clone)]
@@ -236,6 +290,700 @@ pub async fn add_codex_account(app: AppHandle) -> Result<AccountsSnapshot, Strin
         Err(error) => {
             log::error!("Unable to add Codex account: {error}");
             Err("Unable to add Codex account.".to_string())
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn start_reauthenticate_codex_account(
+    app: AppHandle,
+    account_id: String,
+) -> Result<ReauthStartResponse, String> {
+    match tauri::async_runtime::spawn_blocking(move || {
+        start_reauthentication_session(&app, &account_id)
+    })
+    .await
+    {
+        Ok(Ok(response)) => Ok(response),
+        Ok(Err(error))
+            if error == "Account not found."
+                || error == "Another Codex sign-in is already in progress." =>
+        {
+            Err(error)
+        }
+        Ok(Err(error)) => {
+            log::error!("Unable to start Codex account reauthentication: {error}");
+            Err("Unable to start Codex sign-in.".to_string())
+        }
+        Err(error) => {
+            log::error!("Codex account reauthentication start task failed: {error}");
+            Err("Unable to start Codex sign-in.".to_string())
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn poll_reauthenticate_codex_account(
+    app: AppHandle,
+    session_id: String,
+) -> Result<ReauthPollResponse, String> {
+    match tauri::async_runtime::spawn_blocking(move || {
+        poll_reauthentication_session(&app, &session_id)
+    })
+    .await
+    {
+        Ok(result) => result,
+        Err(error) => {
+            log::error!("Codex account reauthentication poll task failed: {error}");
+            Err("Unable to complete Codex sign-in.".to_string())
+        }
+    }
+}
+
+#[tauri::command]
+pub fn cancel_reauthenticate_codex_account(
+    app: AppHandle,
+    session_id: String,
+) -> Result<(), String> {
+    let state = app.state::<ReauthSessionState>();
+    let mut sessions = state
+        .sessions
+        .lock()
+        .map_err(|_| "Codex sign-in state lock was poisoned.".to_string())?;
+
+    let Some(mut session) = sessions.remove(&session_id) else {
+        return Ok(());
+    };
+
+    drop(sessions);
+    cancel_reauth_session(&mut session);
+    Ok(())
+}
+
+fn start_reauthentication_session(
+    app: &AppHandle,
+    account_id: &str,
+) -> Result<ReauthStartResponse, String> {
+    {
+        let metadata = load_metadata(app)?;
+        if !metadata.accounts.iter().any(|account| account.id == account_id) {
+            return Err("Account not found.".to_string());
+        }
+    }
+
+    {
+        let state = app.state::<ReauthSessionState>();
+        let sessions = state
+            .sessions
+            .lock()
+            .map_err(|_| "Codex sign-in state lock was poisoned.".to_string())?;
+
+        if !sessions.is_empty() {
+            return Err("Another Codex sign-in is already in progress.".to_string());
+        }
+    }
+
+    let proxy = settings::load_proxy_settings(app)?.proxy;
+    let temp = tempfile::tempdir()
+        .map_err(|error| format!("Failed to create temporary Codex sign-in environment: {error}"))?;
+
+    fs::write(temp.path().join("config.toml"), TEMP_CODEX_CONFIG)
+        .map_err(|error| format!("Failed to prepare temporary Codex sign-in config: {error}"))?;
+
+    let mut child = spawn_login_app_server(temp.path(), &proxy)?;
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| "Codex app-server stdin was unavailable for sign-in.".to_string())?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "Codex app-server stdout was unavailable for sign-in.".to_string())?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| "Codex app-server stderr was unavailable for sign-in.".to_string())?;
+
+    let (stdout_tx, stdout_rx) = mpsc::channel::<String>();
+    let (stderr_tx, stderr_rx) = mpsc::channel::<String>();
+
+    std::thread::Builder::new()
+        .name("codexgauge-login-app-server-stdout".to_string())
+        .spawn(move || {
+            let reader = BufReader::new(stdout);
+            for line in reader.lines() {
+                match line {
+                    Ok(line) => {
+                        if stdout_tx.send(line).is_err() {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        })
+        .map_err(|error| format!("Failed to start sign-in stdout reader: {error}"))?;
+
+    std::thread::Builder::new()
+        .name("codexgauge-login-app-server-stderr".to_string())
+        .spawn(move || {
+            let reader = BufReader::new(stderr);
+            for line in reader.lines() {
+                match line {
+                    Ok(line) => {
+                        if stderr_tx.send(line).is_err() {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        })
+        .map_err(|error| format!("Failed to start sign-in stderr reader: {error}"))?;
+
+    let mut diagnostics = VecDeque::with_capacity(LOGIN_MAX_STDERR_LINES);
+
+    let start_result = (|| {
+        send_login_message(
+            &mut stdin,
+            &json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "clientInfo": {
+                        "name": "codex_gauge",
+                        "title": "CodexGauge",
+                        "version": env!("CARGO_PKG_VERSION")
+                    },
+                    "capabilities": {
+                        "experimentalApi": true
+                    }
+                }
+            }),
+        )?;
+
+        read_login_response(
+            &stdout_rx,
+            &stderr_rx,
+            &mut child,
+            1,
+            "initialize",
+            LOGIN_APP_SERVER_RESPONSE_TIMEOUT,
+            &mut diagnostics,
+        )?;
+
+        send_login_message(
+            &mut stdin,
+            &json!({
+                "jsonrpc": "2.0",
+                "method": "initialized",
+                "params": {}
+            }),
+        )?;
+
+        send_login_message(
+            &mut stdin,
+            &json!({
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "account/login/start",
+                "params": {
+                    "type": "chatgpt",
+                    "codexStreamlinedLogin": false,
+                    "useHostedLoginSuccessPage": false
+                }
+            }),
+        )?;
+
+        read_login_response(
+            &stdout_rx,
+            &stderr_rx,
+            &mut child,
+            2,
+            "account/login/start",
+            LOGIN_APP_SERVER_RESPONSE_TIMEOUT,
+            &mut diagnostics,
+        )
+    })();
+
+    let result = match start_result {
+        Ok(result) => result,
+        Err(error) => {
+            terminate_login_child(&mut child);
+            return Err(error);
+        }
+    };
+
+    if result.get("type").and_then(Value::as_str) != Some("chatgpt") {
+        terminate_login_child(&mut child);
+        return Err("Codex app-server returned an unexpected sign-in method.".to_string());
+    }
+
+    let login_id = match result
+        .get("loginId")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+    {
+        Some(login_id) => login_id,
+        None => {
+            terminate_login_child(&mut child);
+            return Err("Codex app-server did not return a sign-in id.".to_string());
+        }
+    };
+    let auth_url = match result
+        .get("authUrl")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+    {
+        Some(auth_url) => auth_url,
+        None => {
+            terminate_login_child(&mut child);
+            return Err("Codex app-server did not return a sign-in URL.".to_string());
+        }
+    };
+
+    let session = ReauthSession {
+        account_id: account_id.to_string(),
+        login_id: login_id.clone(),
+        started_at: Instant::now(),
+        _temp: temp,
+        child,
+        stdin,
+        stdout_rx,
+        stderr_rx,
+        diagnostics,
+    };
+
+    let state = app.state::<ReauthSessionState>();
+    let mut sessions = state
+        .sessions
+        .lock()
+        .map_err(|_| "Codex sign-in state lock was poisoned.".to_string())?;
+    sessions.insert(login_id.clone(), session);
+
+    Ok(ReauthStartResponse {
+        session_id: login_id,
+        auth_url,
+    })
+}
+
+fn poll_reauthentication_session(
+    app: &AppHandle,
+    session_id: &str,
+) -> Result<ReauthPollResponse, String> {
+    enum TerminalState {
+        Succeeded,
+        Failed(String),
+        TimedOut,
+    }
+
+    let state = app.state::<ReauthSessionState>();
+    let mut sessions = state
+        .sessions
+        .lock()
+        .map_err(|_| "Codex sign-in state lock was poisoned.".to_string())?;
+
+    let terminal = {
+        let session = sessions
+            .get_mut(session_id)
+            .ok_or_else(|| "Codex sign-in session is no longer available.".to_string())?;
+
+        if session.started_at.elapsed() >= REAUTH_LOGIN_TIMEOUT {
+            Some(TerminalState::TimedOut)
+        } else {
+            drain_login_stderr(&session.stderr_rx, &mut session.diagnostics);
+
+            let mut terminal = None;
+
+            while let Ok(line) = session.stdout_rx.try_recv() {
+                let message: Value = match serde_json::from_str(&line) {
+                    Ok(message) => message,
+                    Err(_) => continue,
+                };
+
+                if message.get("method").and_then(Value::as_str)
+                    != Some("account/login/completed")
+                {
+                    continue;
+                }
+
+                let Some(params) = message.get("params") else {
+                    continue;
+                };
+
+                if params.get("loginId").and_then(Value::as_str)
+                    != Some(session.login_id.as_str())
+                {
+                    continue;
+                }
+
+                if params.get("success").and_then(Value::as_bool) == Some(true) {
+                    terminal = Some(TerminalState::Succeeded);
+                } else {
+                    let detail = params
+                        .get("error")
+                        .and_then(Value::as_str)
+                        .unwrap_or("Codex sign-in failed.");
+                    log::warn!("Codex reauthentication failed: {detail}");
+                    terminal = Some(TerminalState::Failed(
+                        "Codex sign-in was not completed successfully.".to_string(),
+                    ));
+                }
+
+                break;
+            }
+
+            if terminal.is_none() {
+                match session.child.try_wait() {
+                    Ok(Some(status)) => {
+                        drain_login_stderr(&session.stderr_rx, &mut session.diagnostics);
+                        log::warn!(
+                            "Codex sign-in app-server exited before login completed: {status}; diagnostics: {}",
+                            session
+                                .diagnostics
+                                .iter()
+                                .cloned()
+                                .collect::<Vec<_>>()
+                                .join(" | ")
+                        );
+                        terminal = Some(TerminalState::Failed(
+                            "Codex sign-in was not completed successfully.".to_string(),
+                        ));
+                    }
+                    Ok(None) => {}
+                    Err(error) => {
+                        log::error!("Failed to inspect Codex sign-in app-server: {error}");
+                        terminal = Some(TerminalState::Failed(
+                            "Unable to complete Codex sign-in.".to_string(),
+                        ));
+                    }
+                }
+            }
+
+            terminal
+        }
+    };
+
+    let Some(terminal) = terminal else {
+        return Ok(ReauthPollResponse {
+            status: ReauthPollStatus::Pending,
+            snapshot: None,
+            error: None,
+        });
+    };
+
+    let mut session = sessions
+        .remove(session_id)
+        .ok_or_else(|| "Codex sign-in session is no longer available.".to_string())?;
+    drop(sessions);
+
+    match terminal {
+        TerminalState::TimedOut => {
+            cancel_reauth_session(&mut session);
+            Ok(ReauthPollResponse {
+                status: ReauthPollStatus::TimedOut,
+                snapshot: None,
+                error: None,
+            })
+        }
+        TerminalState::Failed(error) => {
+            terminate_login_child(&mut session.child);
+            Ok(ReauthPollResponse {
+                status: ReauthPollStatus::Failed,
+                snapshot: None,
+                error: Some(error),
+            })
+        }
+        TerminalState::Succeeded => {
+            // The managed sign-in has completed and auth.json is already
+            // persisted inside the isolated CODEX_HOME. Stop this app-server
+            // before updating the real auth file so it cannot be mistaken for
+            // a user-run Codex process by any other runtime checks.
+            terminate_login_child(&mut session.child);
+            let finalize_result = finalize_reauthentication(app, &mut session);
+
+            match finalize_result {
+                Ok(snapshot) => Ok(ReauthPollResponse {
+                    status: ReauthPollStatus::Succeeded,
+                    snapshot: Some(snapshot),
+                    error: None,
+                }),
+                Err(error)
+                    if error == "Signed-in account does not match the selected account."
+                        || error.starts_with("Codex is currently running (") =>
+                {
+                    Ok(ReauthPollResponse {
+                        status: ReauthPollStatus::Failed,
+                        snapshot: None,
+                        error: Some(error),
+                    })
+                }
+                Err(error) => {
+                    log::error!("Unable to finalize Codex account reauthentication: {error}");
+                    Ok(ReauthPollResponse {
+                        status: ReauthPollStatus::Failed,
+                        snapshot: None,
+                        error: Some("Unable to complete Codex sign-in.".to_string()),
+                    })
+                }
+            }
+        }
+    }
+}
+
+fn finalize_reauthentication(
+    app: &AppHandle,
+    session: &mut ReauthSession,
+) -> Result<AccountsSnapshot, String> {
+    let auth_path = session._temp.path().join("auth.json");
+    let auth_bytes = fs::read(&auth_path).map_err(|error| {
+        format!("Codex sign-in completed but no readable auth.json was produced: {error}")
+    })?;
+    let identity = parse_auth_identity(&auth_bytes)?;
+
+    if identity.id != session.account_id {
+        return Err("Signed-in account does not match the selected account.".to_string());
+    }
+
+    let target_is_active =
+        current_account_id(app).as_deref() == Some(session.account_id.as_str());
+
+    // Reauthentication keeps the same account identity, so refreshing its
+    // credential file does not require the switch-account process guard.
+    // This also avoids mistaking CodexGauge's own short-lived app-server
+    // usage process for a user-run Codex session.
+    persist_account_auth(app, &identity, &auth_bytes)?;
+
+    if target_is_active {
+        let main_auth_path = main_codex_home(app)?.join("auth.json");
+
+        if let Some(parent) = main_auth_path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|error| format!("Failed to create Codex home: {error}"))?;
+        }
+
+        let expected_hash = auth_content_hash(&auth_bytes);
+        install_self_write_guard(app, &expected_hash)?;
+
+        atomic_write(&main_auth_path, &auth_bytes)
+            .map_err(|error| format!("Failed to update Codex authentication: {error}"))?;
+
+        remember_observed_auth(app, &identity, &auth_bytes)?;
+    }
+
+    emit_accounts_changed(app);
+    build_snapshot_with_usage(app)
+}
+
+fn cancel_reauth_session(session: &mut ReauthSession) {
+    let _ = send_login_message(
+        &mut session.stdin,
+        &json!({
+            "jsonrpc": "2.0",
+            "id": 99,
+            "method": "account/login/cancel",
+            "params": {
+                "loginId": session.login_id.clone()
+            }
+        }),
+    );
+
+    terminate_login_child(&mut session.child);
+}
+
+fn spawn_login_app_server(
+    codex_home: &Path,
+    proxy: &settings::ProxySettings,
+) -> Result<Child, String> {
+    let config_override = settings::codex_config_override(proxy);
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+        let mut command = Command::new("cmd.exe");
+        command
+            .args([
+                "/D",
+                "/C",
+                "codex",
+                "-c",
+                config_override,
+                "app-server",
+                "--stdio",
+            ])
+            .env("CODEX_HOME", codex_home)
+            .env("NO_COLOR", "1")
+            .creation_flags(CREATE_NO_WINDOW)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        settings::configure_codex_command(&mut command, proxy)?;
+        command
+            .spawn()
+            .map_err(|error| format!("Failed to start Codex app-server for sign-in: {error}"))
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let mut command = Command::new("codex");
+        command
+            .args(["-c", config_override, "app-server", "--stdio"])
+            .env("CODEX_HOME", codex_home)
+            .env("NO_COLOR", "1")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        settings::configure_codex_command(&mut command, proxy)?;
+        command
+            .spawn()
+            .map_err(|error| format!("Failed to start Codex app-server for sign-in: {error}"))
+    }
+}
+
+fn send_login_message(stdin: &mut ChildStdin, message: &Value) -> Result<(), String> {
+    let line = serde_json::to_string(message)
+        .map_err(|error| format!("Failed to encode Codex sign-in request: {error}"))?;
+
+    stdin
+        .write_all(line.as_bytes())
+        .and_then(|_| stdin.write_all(b"\n"))
+        .and_then(|_| stdin.flush())
+        .map_err(|error| format!("Failed to send Codex sign-in request: {error}"))
+}
+
+fn read_login_response(
+    stdout_rx: &mpsc::Receiver<String>,
+    stderr_rx: &mpsc::Receiver<String>,
+    child: &mut Child,
+    expected_id: i64,
+    operation: &str,
+    timeout: Duration,
+    diagnostics: &mut VecDeque<String>,
+) -> Result<Value, String> {
+    let deadline = Instant::now() + timeout;
+
+    loop {
+        drain_login_stderr(stderr_rx, diagnostics);
+
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                drain_login_stderr(stderr_rx, diagnostics);
+                return Err(login_with_diagnostics(
+                    format!("Codex app-server exited before {operation} completed ({status})."),
+                    diagnostics,
+                ));
+            }
+            Ok(None) => {}
+            Err(error) => {
+                return Err(login_with_diagnostics(
+                    format!("Failed to inspect Codex sign-in app-server: {error}"),
+                    diagnostics,
+                ));
+            }
+        }
+
+        let now = Instant::now();
+        if now >= deadline {
+            drain_login_stderr(stderr_rx, diagnostics);
+            return Err(login_with_diagnostics(
+                format!("Timed out waiting for Codex app-server {operation}."),
+                diagnostics,
+            ));
+        }
+
+        let wait_for = deadline
+            .saturating_duration_since(now)
+            .min(LOGIN_PROCESS_POLL_INTERVAL);
+
+        match stdout_rx.recv_timeout(wait_for) {
+            Ok(line) => {
+                let message: Value = match serde_json::from_str(&line) {
+                    Ok(message) => message,
+                    Err(_) => continue,
+                };
+
+                let id_matches = message.get("id").and_then(Value::as_i64) == Some(expected_id)
+                    || message
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .and_then(|value| value.parse::<i64>().ok())
+                        == Some(expected_id);
+
+                if !id_matches {
+                    continue;
+                }
+
+                if let Some(error) = message.get("error") {
+                    drain_login_stderr(stderr_rx, diagnostics);
+                    return Err(login_with_diagnostics(
+                        format!("Codex app-server returned an error for {operation}: {error}"),
+                        diagnostics,
+                    ));
+                }
+
+                return message
+                    .get("result")
+                    .cloned()
+                    .ok_or_else(|| {
+                        login_with_diagnostics(
+                            format!("Codex app-server {operation} response did not contain a result."),
+                            diagnostics,
+                        )
+                    });
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                drain_login_stderr(stderr_rx, diagnostics);
+                return Err(login_with_diagnostics(
+                    format!("Codex app-server stdout closed before {operation} completed."),
+                    diagnostics,
+                ));
+            }
+        }
+    }
+}
+
+fn drain_login_stderr(
+    stderr_rx: &mpsc::Receiver<String>,
+    diagnostics: &mut VecDeque<String>,
+) {
+    while let Ok(line) = stderr_rx.try_recv() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+
+        if diagnostics.len() == LOGIN_MAX_STDERR_LINES {
+            diagnostics.pop_front();
+        }
+        diagnostics.push_back(line.to_string());
+    }
+}
+
+fn login_with_diagnostics(message: String, diagnostics: &VecDeque<String>) -> String {
+    if diagnostics.is_empty() {
+        return message;
+    }
+
+    format!(
+        "{message} app-server stderr: {}",
+        diagnostics.iter().cloned().collect::<Vec<_>>().join(" | ")
+    )
+}
+
+fn terminate_login_child(child: &mut Child) {
+    match child.try_wait() {
+        Ok(Some(_)) => {
+            let _ = child.wait();
+        }
+        Ok(None) | Err(_) => {
+            let _ = child.kill();
+            let _ = child.wait();
         }
     }
 }

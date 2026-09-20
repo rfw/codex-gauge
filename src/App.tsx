@@ -103,6 +103,9 @@ function CodexGaugeApp() {
     switchAccount,
     renameAccount,
     addAccount,
+    startReauthentication,
+    pollReauthentication,
+    cancelReauthentication,
     deleteAccount,
     updateRefreshSettings,
   } = useAccounts()
@@ -360,6 +363,9 @@ function CodexGaugeApp() {
                 }
                 onSwitch={handleSwitchAccount}
                 onRename={renameAccount}
+                onStartReauthentication={startReauthentication}
+                onPollReauthentication={pollReauthentication}
+                onCancelReauthentication={cancelReauthentication}
                 onDelete={deleteAccount}
               />
             ))

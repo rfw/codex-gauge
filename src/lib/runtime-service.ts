@@ -13,6 +13,10 @@ export async function openCodexInstallGuide(): Promise<void> {
   return invoke<void>("open_codex_install_guide")
 }
 
+export async function openExternalUrl(url: string): Promise<void> {
+  return invoke<void>("open_external_url", { url })
+}
+
 export async function closeCodexGauge(): Promise<void> {
   return invoke<void>("close_codex_gauge")
 }

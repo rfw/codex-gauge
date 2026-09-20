@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { LucideBadgeCheck, LoaderCircle, Trash2 } from "lucide-react"
 
 import { BankedResetList } from "@/components/banked-reset-list"
+import { ReauthenticateAccountDialog } from "@/components/reauthenticate-account-dialog"
 import { QuotaRow } from "@/components/quota-row"
 import {
   AlertDialog,
@@ -23,6 +24,10 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import type {
+  ReauthPollResponse,
+  ReauthStartResponse,
+} from "@/features/accounts/account-service"
 import type { CodexAccount } from "@/features/accounts/types"
 import { useI18n } from "@/i18n"
 import { localizeErrorMessage } from "@/i18n/errors"
@@ -33,6 +38,9 @@ type AccountCardProps = {
   highlightNextReset?: "fiveHour" | "weekly" | null
   onSwitch: (accountId: string) => Promise<void>
   onRename: (accountId: string, label: string) => Promise<void>
+  onStartReauthentication: (accountId: string) => Promise<ReauthStartResponse>
+  onPollReauthentication: (sessionId: string) => Promise<ReauthPollResponse>
+  onCancelReauthentication: (sessionId: string) => Promise<void>
   onDelete: (accountId: string) => Promise<void>
 }
 
@@ -41,6 +49,9 @@ function AccountCardComponent({
   highlightNextReset = null,
   onSwitch,
   onRename,
+  onStartReauthentication,
+  onPollReauthentication,
+  onCancelReauthentication,
   onDelete,
 }: AccountCardProps) {
   const { locale, t } = useI18n()
@@ -262,12 +273,23 @@ function AccountCardComponent({
                   {t("quota.unavailable")}
                 </span>
               </div>
-              <p
-                className="mt-1.5 text-xs text-muted-foreground"
-                title={localizedUsageError ?? undefined}
-              >
-                {localizedUsageError}
-              </p>
+              <div className="mt-1.5 flex items-center justify-between gap-3">
+                <p
+                  className="min-w-0 text-xs text-muted-foreground"
+                  title={localizedUsageError ?? undefined}
+                >
+                  {localizedUsageError}
+                </p>
+
+                {account.usageErrorKind === "auth" ? (
+                  <ReauthenticateAccountDialog
+                    accountId={account.id}
+                    onStart={onStartReauthentication}
+                    onPoll={onPollReauthentication}
+                    onCancel={onCancelReauthentication}
+                  />
+                ) : null}
+              </div>
             </div>
           ) : (
             <>
