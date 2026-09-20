@@ -14,8 +14,8 @@ use crate::accounts::{
 };
 use crate::settings::{self, ProxySettings};
 
-const INITIALIZE_TIMEOUT: Duration = Duration::from_secs(10);
-const RATE_LIMITS_TIMEOUT: Duration = Duration::from_secs(45);
+const INITIALIZE_TIMEOUT: Duration = Duration::from_secs(8);
+const RATE_LIMITS_TIMEOUT: Duration = Duration::from_secs(25);
 const PROCESS_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const MAX_STDERR_LINES: usize = 12;
 
@@ -31,18 +31,71 @@ pub(crate) struct AccountUsage {
     pub(crate) banked_resets: Option<BankedResetsView>,
 }
 
-pub(crate) fn read_account_usage(
+pub(crate) struct AccountUsageProbe {
+    result: Result<AccountUsage, String>,
+    refreshed_auth: Option<Result<Vec<u8>, String>>,
+    query_succeeded: bool,
+    remember_as_active: bool,
+}
+
+pub(crate) struct ValidatedSwitchAccount {
+    pub(crate) auth_bytes: Vec<u8>,
+    pub(crate) usage: AccountUsage,
+}
+
+pub(crate) fn probe_account_usage(
     app: &AppHandle,
     account: &StoredAccount,
     active_account_id: Option<&str>,
-) -> Result<AccountUsage, String> {
-    let proxy = settings::load_proxy_settings(app)?.proxy;
+) -> AccountUsageProbe {
+    let proxy = match settings::load_proxy_settings(app) {
+        Ok(settings) => settings.proxy,
+        Err(error) => {
+            return AccountUsageProbe {
+                result: Err(error),
+                refreshed_auth: None,
+                query_succeeded: false,
+                remember_as_active: false,
+            };
+        }
+    };
 
     if active_account_id == Some(account.id.as_str()) {
-        return read_active_account_usage(app, account, &proxy);
+        return probe_active_account_usage(app, &proxy);
     }
 
-    read_inactive_account_usage(app, account, &proxy)
+    probe_inactive_account_usage(app, account, &proxy)
+}
+
+pub(crate) fn finalize_account_usage(
+    app: &AppHandle,
+    account: &StoredAccount,
+    probe: AccountUsageProbe,
+) -> Result<AccountUsage, String> {
+    if let Some(refreshed_auth) = probe.refreshed_auth {
+        match refreshed_auth {
+            Ok(updated_auth) => {
+                persist_refreshed_auth_bytes(
+                    app,
+                    account,
+                    &updated_auth,
+                    probe.query_succeeded,
+                    probe.remember_as_active,
+                )?;
+            }
+            Err(error) => {
+                if probe.query_succeeded {
+                    return Err(error);
+                }
+
+                log::warn!(
+                    "Could not read refreshed Codex auth after a usage failure: {error}"
+                );
+            }
+        }
+    }
+
+    probe.result
 }
 
 pub(crate) fn test_proxy_connection(
@@ -57,7 +110,7 @@ pub(crate) fn validate_account_auth_for_switch(
     app: &AppHandle,
     account: &StoredAccount,
     auth_bytes: &[u8],
-) -> Result<Vec<u8>, String> {
+) -> Result<ValidatedSwitchAccount, String> {
     let proxy = settings::load_proxy_settings(app)?.proxy;
     let temp = tempfile::tempdir()
         .map_err(|error| format!("Failed to create temporary switch validation environment: {error}"))?;
@@ -70,6 +123,7 @@ pub(crate) fn validate_account_auth_for_switch(
 
     let temp_auth_path = temp.path().join("auth.json");
     let validation = query_rate_limits_with_proxy(temp.path(), &proxy);
+    let query_succeeded = validation.is_ok();
 
     // Even when validation fails, the app-server may already have refreshed
     // auth.json. Preserve that refresh before the temporary home is deleted.
@@ -77,11 +131,13 @@ pub(crate) fn validate_account_auth_for_switch(
         app,
         account,
         &temp_auth_path,
-        validation.is_ok(),
+        query_succeeded,
         false,
     )?;
 
-    validation
+    let response = validation
+        .map_err(|error| format!("Pre-switch account validation failed: {error}"))?;
+    let usage = parse_usage_response(&response)
         .map_err(|error| format!("Pre-switch account validation failed: {error}"))?;
 
     let refreshed_auth = fs::read(&temp_auth_path)
@@ -97,63 +153,106 @@ pub(crate) fn validate_account_auth_for_switch(
         );
     }
 
-    Ok(refreshed_auth)
+    Ok(ValidatedSwitchAccount {
+        auth_bytes: refreshed_auth,
+        usage,
+    })
 }
 
-fn read_active_account_usage(
+fn probe_active_account_usage(
+    app: &AppHandle,
+    proxy: &ProxySettings,
+) -> AccountUsageProbe {
+    let codex_home = match accounts::main_codex_home(app) {
+        Ok(path) => path,
+        Err(error) => {
+            return AccountUsageProbe {
+                result: Err(error),
+                refreshed_auth: None,
+                query_succeeded: false,
+                remember_as_active: true,
+            };
+        }
+    };
+
+    let response = query_rate_limits_with_proxy(&codex_home, proxy);
+    let query_succeeded = response.is_ok();
+    let refreshed_auth = Some(
+        fs::read(codex_home.join("auth.json"))
+            .map_err(|error| format!("Failed to read refreshed Codex auth: {error}")),
+    );
+    let result = response.and_then(|value| parse_usage_response(&value));
+
+    AccountUsageProbe {
+        result,
+        refreshed_auth,
+        query_succeeded,
+        remember_as_active: true,
+    }
+}
+
+fn probe_inactive_account_usage(
     app: &AppHandle,
     account: &StoredAccount,
     proxy: &ProxySettings,
-) -> Result<AccountUsage, String> {
-    let codex_home = accounts::main_codex_home(app)?;
-    let result = query_rate_limits_with_proxy(&codex_home, proxy);
+) -> AccountUsageProbe {
+    let auth_bytes = match accounts::load_account_auth(app, account) {
+        Ok(auth) => auth,
+        Err(error) => {
+            return AccountUsageProbe {
+                result: Err(error),
+                refreshed_auth: None,
+                query_succeeded: false,
+                remember_as_active: false,
+            };
+        }
+    };
 
-    // The app-server may refresh auth.json before the rate-limits request
-    // succeeds or fails. Keep CodexGauge's encrypted backup synchronized
-    // regardless of the usage result so a refreshed token is not discarded.
-    persist_refreshed_auth_if_available(
-        app,
-        account,
-        &codex_home.join("auth.json"),
-        result.is_ok(),
-        true,
-    )?;
+    let temp = match tempfile::tempdir() {
+        Ok(temp) => temp,
+        Err(error) => {
+            return AccountUsageProbe {
+                result: Err(format!("Failed to create temporary usage environment: {error}")),
+                refreshed_auth: None,
+                query_succeeded: false,
+                remember_as_active: false,
+            };
+        }
+    };
 
-    let result = result?;
-    parse_usage_response(&result)
-}
-
-fn read_inactive_account_usage(
-    app: &AppHandle,
-    account: &StoredAccount,
-    proxy: &ProxySettings,
-) -> Result<AccountUsage, String> {
-    let auth_bytes = accounts::load_account_auth(app, account)?;
-    let temp = tempfile::tempdir()
-        .map_err(|error| format!("Failed to create temporary usage environment: {error}"))?;
-
-    fs::write(temp.path().join("config.toml"), TEMP_CODEX_CONFIG)
-        .map_err(|error| format!("Failed to prepare temporary Codex config: {error}"))?;
+    if let Err(error) = fs::write(temp.path().join("config.toml"), TEMP_CODEX_CONFIG) {
+        return AccountUsageProbe {
+            result: Err(format!("Failed to prepare temporary Codex config: {error}")),
+            refreshed_auth: None,
+            query_succeeded: false,
+            remember_as_active: false,
+        };
+    }
 
     let temp_auth_path = temp.path().join("auth.json");
-    fs::write(&temp_auth_path, &auth_bytes)
-        .map_err(|error| format!("Failed to prepare temporary Codex auth: {error}"))?;
+    if let Err(error) = fs::write(&temp_auth_path, &auth_bytes) {
+        return AccountUsageProbe {
+            result: Err(format!("Failed to prepare temporary Codex auth: {error}")),
+            refreshed_auth: None,
+            query_succeeded: false,
+            remember_as_active: false,
+        };
+    }
 
-    let result = query_rate_limits_with_proxy(temp.path(), proxy);
+    let response = query_rate_limits_with_proxy(temp.path(), proxy);
+    let query_succeeded = response.is_ok();
+    let refreshed_auth = Some(
+        fs::read(&temp_auth_path)
+            .map_err(|error| format!("Failed to read refreshed Codex auth: {error}")),
+    );
+    let result = response.and_then(|value| parse_usage_response(&value));
 
-    // Do not lose a token refresh just because account/rateLimits/read later
-    // failed. This is especially important for inactive accounts because the
-    // temporary CODEX_HOME is deleted at the end of this function.
-    persist_refreshed_auth_if_available(
-        app,
-        account,
-        &temp_auth_path,
-        result.is_ok(),
-        false,
-    )?;
-
-    let result = result?;
-    parse_usage_response(&result)
+    AccountUsageProbe {
+        result,
+        refreshed_auth,
+        query_succeeded,
+        remember_as_active: false,
+    }
 }
 
 fn persist_refreshed_auth_if_available(
@@ -177,7 +276,23 @@ fn persist_refreshed_auth_if_available(
         }
     };
 
-    let identity = match accounts::parse_auth_identity(&updated_auth) {
+    persist_refreshed_auth_bytes(
+        app,
+        account,
+        &updated_auth,
+        fail_on_persist_error,
+        remember_as_active,
+    )
+}
+
+fn persist_refreshed_auth_bytes(
+    app: &AppHandle,
+    account: &StoredAccount,
+    updated_auth: &[u8],
+    fail_on_persist_error: bool,
+    remember_as_active: bool,
+) -> Result<(), String> {
+    let identity = match accounts::parse_auth_identity(updated_auth) {
         Ok(identity) => identity,
         Err(error) => {
             if fail_on_persist_error {
@@ -203,7 +318,7 @@ fn persist_refreshed_auth_if_available(
         return Ok(());
     }
 
-    if let Err(error) = accounts::persist_account_auth(app, &identity, &updated_auth) {
+    if let Err(error) = accounts::persist_account_auth(app, &identity, updated_auth) {
         if fail_on_persist_error {
             return Err(error);
         }
@@ -214,7 +329,7 @@ fn persist_refreshed_auth_if_available(
     }
 
     if remember_as_active {
-        if let Err(error) = accounts::remember_active_auth(app, &identity, &updated_auth) {
+        if let Err(error) = accounts::remember_active_auth(app, &identity, updated_auth) {
             if fail_on_persist_error {
                 return Err(error);
             }

@@ -28,6 +28,7 @@ const REAUTH_LOGIN_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const LOGIN_APP_SERVER_RESPONSE_TIMEOUT: Duration = Duration::from_secs(10);
 const LOGIN_PROCESS_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const LOGIN_MAX_STDERR_LINES: usize = 12;
+const MAX_PARALLEL_USAGE_READS: usize = 2;
 
 pub struct AuthWatcherState {
     self_writes: Mutex<Vec<SelfWriteGuard>>,
@@ -1040,6 +1041,7 @@ pub async fn switch_codex_account(
         import_current_account_if_needed(&app)?;
 
         let metadata = load_metadata(&app)?;
+        let active_id_before_switch = current_account_id(&app);
         let target = metadata
             .accounts
             .iter()
@@ -1056,11 +1058,48 @@ pub async fn switch_codex_account(
             );
         }
 
+        // Probe every non-target account while the target account is validated.
+        // With two accounts this makes the network portion of a switch roughly
+        // one app-server round trip instead of target -> old account -> target.
+        // Probes never persist auth themselves; refreshed credentials are
+        // committed sequentially after the workers finish.
+        let probe_app = app.clone();
+        let probe_accounts = metadata.accounts.clone();
+        let probe_active_id = active_id_before_switch.clone();
+        let probe_target_id = target.id.clone();
+        let other_probe_handle = std::thread::spawn(move || {
+            probe_usage_parallel(
+                &probe_app,
+                &probe_accounts,
+                probe_active_id.as_deref(),
+                Some(probe_target_id.as_str()),
+            )
+        });
+
         // Validate the target account in an isolated CODEX_HOME before touching
-        // the real ~/.codex/auth.json. Codex app-server may refresh an expired
-        // access token here; the refreshed auth is persisted before switching.
-        let target_auth =
-            usage::validate_account_auth_for_switch(&app, &target, &stored_target_auth)?;
+        // the real ~/.codex/auth.json. The returned usage data is reused after
+        // the switch, so the target account is not queried a second time.
+        let validation =
+            usage::validate_account_auth_for_switch(&app, &target, &stored_target_auth);
+
+        let other_probes = other_probe_handle.join().unwrap_or_else(|_| {
+            log::error!("Parallel Codex usage probe task panicked during account switch");
+            HashMap::new()
+        });
+
+        // Preserve any refreshed credentials from the non-target probes before
+        // replacing the active auth.json. This is serialized on this thread so
+        // accounts.json updates cannot race with one another.
+        let mut usage_results = finalize_usage_probes(
+            &app,
+            &metadata.accounts,
+            other_probes,
+            Some(target.id.as_str()),
+        );
+
+        let validated_target = validation?;
+        let target_auth = validated_target.auth_bytes;
+        usage_results.insert(target.id.clone(), Ok(validated_target.usage));
 
         let main_auth_path = main_codex_home(&app)?.join("auth.json");
 
@@ -1096,7 +1135,11 @@ pub async fn switch_codex_account(
         match verification {
             Ok(identity) if identity.id == target.id => {
                 remember_observed_auth(&app, &identity, &target_auth)?;
-                build_snapshot_with_usage(&app)
+                Ok(build_snapshot_from_usage_results(
+                    metadata,
+                    Some(target.id),
+                    usage_results,
+                ))
             }
             Ok(_) | Err(_) => {
                 if let Some(previous) = previous_auth {
@@ -1250,22 +1293,128 @@ pub async fn delete_codex_account(
 fn build_snapshot_with_usage(app: &AppHandle) -> Result<AccountsSnapshot, String> {
     let metadata = load_metadata(app)?;
     let active_id = current_account_id(app);
+    let probes = probe_usage_parallel(
+        app,
+        &metadata.accounts,
+        active_id.as_deref(),
+        None,
+    );
+    let usage_results = finalize_usage_probes(
+        app,
+        &metadata.accounts,
+        probes,
+        None,
+    );
 
+    Ok(build_snapshot_from_usage_results(
+        metadata,
+        active_id,
+        usage_results,
+    ))
+}
+
+fn probe_usage_parallel(
+    app: &AppHandle,
+    accounts: &[StoredAccount],
+    active_id: Option<&str>,
+    skip_account_id: Option<&str>,
+) -> HashMap<String, Result<usage::AccountUsageProbe, String>> {
+    let indices = accounts
+        .iter()
+        .enumerate()
+        .filter_map(|(index, account)| {
+            (skip_account_id != Some(account.id.as_str())).then_some(index)
+        })
+        .collect::<Vec<_>>();
+
+    let mut probes = HashMap::with_capacity(indices.len());
+
+    for batch in indices.chunks(MAX_PARALLEL_USAGE_READS) {
+        let batch_results = std::thread::scope(|scope| {
+            let mut handles = Vec::with_capacity(batch.len());
+
+            for &index in batch {
+                let account = accounts[index].clone();
+                let account_id = account.id.clone();
+                let active_id = active_id.map(str::to_owned);
+                let app = app.clone();
+
+                handles.push((
+                    account_id,
+                    scope.spawn(move || {
+                        usage::probe_account_usage(
+                            &app,
+                            &account,
+                            active_id.as_deref(),
+                        )
+                    }),
+                ));
+            }
+
+            handles
+                .into_iter()
+                .map(|(account_id, handle)| {
+                    let result = handle.join().map_err(|_| {
+                        "Codex usage worker failed unexpectedly.".to_string()
+                    });
+                    (account_id, result)
+                })
+                .collect::<Vec<_>>()
+        });
+
+        probes.extend(batch_results);
+    }
+
+    probes
+}
+
+fn finalize_usage_probes(
+    app: &AppHandle,
+    accounts: &[StoredAccount],
+    mut probes: HashMap<String, Result<usage::AccountUsageProbe, String>>,
+    skip_account_id: Option<&str>,
+) -> HashMap<String, Result<AccountUsage, String>> {
+    let mut results = HashMap::with_capacity(probes.len());
+
+    for account in accounts {
+        if skip_account_id == Some(account.id.as_str()) {
+            continue;
+        }
+
+        let result = match probes.remove(&account.id) {
+            Some(Ok(probe)) => usage::finalize_account_usage(app, account, probe),
+            Some(Err(error)) => Err(error),
+            None => Err("Codex usage probe did not return a result.".to_string()),
+        };
+
+        results.insert(account.id.clone(), result);
+    }
+
+    results
+}
+
+fn build_snapshot_from_usage_results(
+    metadata: AccountsMetadata,
+    active_id: Option<String>,
+    mut usage_results: HashMap<String, Result<AccountUsage, String>>,
+) -> AccountsSnapshot {
     let mut accounts = Vec::with_capacity(metadata.accounts.len());
 
     for account in metadata.accounts {
-        let (usage, classified_error) =
-            match usage::read_account_usage(app, &account, active_id.as_deref()) {
-                Ok(usage) => (usage, None),
-                Err(error) => {
-                    log::warn!("Could not read usage for a Codex account: {error}");
+        let result = usage_results
+            .remove(&account.id)
+            .unwrap_or_else(|| Err("Codex usage data was not collected.".to_string()));
 
-                    (
-                        AccountUsage::default(),
-                        Some(classify_usage_error(&error)),
-                    )
-                }
-            };
+        let (usage, classified_error) = match result {
+            Ok(usage) => (usage, None),
+            Err(error) => {
+                log::warn!("Could not read usage for a Codex account: {error}");
+                (
+                    AccountUsage::default(),
+                    Some(classify_usage_error(&error)),
+                )
+            }
+        };
 
         let current_plan = usage
             .plan_type
@@ -1292,10 +1441,10 @@ fn build_snapshot_with_usage(app: &AppHandle) -> Result<AccountsSnapshot, String
         });
     }
 
-    Ok(AccountsSnapshot {
+    AccountsSnapshot {
         accounts,
         fetched_at: unix_millis(),
-    })
+    }
 }
 
 fn classify_usage_error(error: &str) -> ClassifiedUsageError {

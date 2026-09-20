@@ -32,6 +32,7 @@ import type { CodexAccount } from "@/features/accounts/types"
 import { useI18n } from "@/i18n"
 import { localizeErrorMessage } from "@/i18n/errors"
 import { formatCreditBalance } from "@/lib/format"
+import {cn} from "@/lib/utils.ts";
 
 type AccountCardProps = {
   account: CodexAccount
@@ -144,9 +145,11 @@ function AccountCardComponent({
     <>
       <Card
         className={
-          account.isActive
-            ? "rounded-md border-foreground/15 bg-card py-0 shadow-sm"
-            : "rounded-md border-border/80 bg-card/95 py-0 shadow-none"
+          cn(
+              "ring-0 rounded-md py-0 border",
+              account.isActive && "border-emerald-500/50",
+
+          )
         }
       >
         <CardContent className="px-4 py-2.5">
