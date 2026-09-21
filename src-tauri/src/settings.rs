@@ -8,7 +8,7 @@ use tauri::{AppHandle, Manager};
 
 use crate::usage;
 
-const SETTINGS_VERSION: u32 = 5;
+const SETTINGS_VERSION: u32 = 6;
 
 const PROXY_ENV_KEYS: [&str; 8] = [
     "HTTP_PROXY",
@@ -34,6 +34,8 @@ pub(crate) struct AppSettings {
     pub(crate) language: LanguageSettings,
     #[serde(default)]
     pub(crate) theme: ThemeSettings,
+    #[serde(default)]
+    pub(crate) notifications: NotificationSettings,
     #[serde(default)]
     pub(crate) update: UpdateSettings,
     #[serde(default)]
@@ -93,6 +95,12 @@ pub(crate) enum ThemePreference {
     Dark,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct NotificationSettings {
+    pub(crate) reset_notifications_enabled: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct UpdateSettings {
@@ -125,6 +133,14 @@ impl Default for RefreshSettings {
     }
 }
 
+impl Default for NotificationSettings {
+    fn default() -> Self {
+        Self {
+            reset_notifications_enabled: true,
+        }
+    }
+}
+
 impl Default for LanguageSettings {
     fn default() -> Self {
         Self {
@@ -149,6 +165,7 @@ impl Default for AppSettings {
             refresh: RefreshSettings::default(),
             language: LanguageSettings::default(),
             theme: ThemeSettings::default(),
+            notifications: NotificationSettings::default(),
             update: UpdateSettings::default(),
             tray: TraySettings::default(),
         }
@@ -280,6 +297,23 @@ pub fn save_theme_settings(
     let mut app_settings = load_settings(&app)?;
     app_settings.version = SETTINGS_VERSION;
     app_settings.theme = settings.clone();
+    save_app_settings(&app, &app_settings)?;
+    Ok(settings)
+}
+
+#[tauri::command]
+pub fn get_notification_settings(app: AppHandle) -> Result<NotificationSettings, String> {
+    Ok(load_settings(&app)?.notifications)
+}
+
+#[tauri::command]
+pub fn save_notification_settings(
+    app: AppHandle,
+    settings: NotificationSettings,
+) -> Result<NotificationSettings, String> {
+    let mut app_settings = load_settings(&app)?;
+    app_settings.version = SETTINGS_VERSION;
+    app_settings.notifications = settings.clone();
     save_app_settings(&app, &app_settings)?;
     Ok(settings)
 }

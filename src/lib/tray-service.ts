@@ -19,3 +19,13 @@ export async function updateTrayMenuLabels(
     quitLabel,
   })
 }
+
+export async function showSystemNotification(
+  title: string,
+  body: string,
+): Promise<void> {
+  await invoke<void>("show_system_notification", {
+    title,
+    body,
+  })
+}

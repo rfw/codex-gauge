@@ -21,10 +21,11 @@ export const zhCN: Record<TranslationKey, string> = {
   "app.nextResetUnavailable": "暂无",
 
   "settings.title": "设置",
-  "settings.description": "配置语言、网络、轮询和应用信息。",
+  "settings.description": "配置语言、网络、轮询、通知和应用信息。",
   "settings.general": "通用",
   "settings.proxy": "代理",
   "settings.polling": "轮询",
+  "settings.notifications": "通知",
   "settings.about": "关于",
 
   "general.title": "通用",
@@ -166,6 +167,18 @@ export const zhCN: Record<TranslationKey, string> = {
   "polling.saved": "轮询设置已保存。",
   "polling.readError": "无法读取轮询设置。",
   "polling.saveError": "无法保存轮询设置。",
+
+  "notifications.title": "通知",
+  "notifications.description": "配置系统通知提醒。",
+  "notifications.resetNotifications": "额度重置通知",
+  "notifications.resetNotificationsDescription": "当“下次重置”时间到达时，通过系统原生通知提醒你。",
+  "notifications.loading": "正在加载通知设置...",
+  "notifications.saved": "通知设置已保存。",
+  "notifications.readError": "无法读取通知设置。",
+  "notifications.saveError": "无法保存通知设置。",
+  "notifications.resetTitle": "Codex 额度重置提醒",
+  "notifications.fiveHourResetBody": "账号「{{account}}」的 5 小时额度已到重置时间。",
+  "notifications.weeklyResetBody": "账号「{{account}}」的每周额度已到重置时间。",
 
   "about.title": "关于",
   "about.description": "CodexGauge 是一个本地 Codex 账号与用量管理工具。",

@@ -19,10 +19,11 @@ export const enUS = {
   "app.nextResetUnavailable": "None",
 
   "settings.title": "Settings",
-  "settings.description": "Configure language, network, polling, and application information.",
+  "settings.description": "Configure language, network, polling, notifications, and application information.",
   "settings.general": "General",
   "settings.proxy": "Proxy",
   "settings.polling": "Polling",
+  "settings.notifications": "Notifications",
   "settings.about": "About",
 
   "general.title": "General",
@@ -164,6 +165,18 @@ export const enUS = {
   "polling.saved": "Polling settings saved.",
   "polling.readError": "Unable to read polling settings.",
   "polling.saveError": "Unable to save polling settings.",
+
+  "notifications.title": "Notifications",
+  "notifications.description": "Configure system notification reminders.",
+  "notifications.resetNotifications": "Quota reset notifications",
+  "notifications.resetNotificationsDescription": "Send a native system notification when the Next reset time is reached.",
+  "notifications.loading": "Loading notification settings...",
+  "notifications.saved": "Notification settings saved.",
+  "notifications.readError": "Unable to read notification settings.",
+  "notifications.saveError": "Unable to save notification settings.",
+  "notifications.resetTitle": "Codex quota reset reminder",
+  "notifications.fiveHourResetBody": "The 5-hour quota for “{{account}}” has reached its reset time.",
+  "notifications.weeklyResetBody": "The weekly quota for “{{account}}” has reached its reset time.",
 
   "about.title": "About",
   "about.description": "CodexGauge is a local Codex account and usage manager.",

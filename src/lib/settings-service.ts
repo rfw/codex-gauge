@@ -30,6 +30,10 @@ export type UpdateSettings = {
   ignoredVersion: string | null
 }
 
+export type NotificationSettings = {
+  resetNotificationsEnabled: boolean
+}
+
 export async function getProxySettings(): Promise<ProxySettings> {
   return invoke<ProxySettings>("get_proxy_settings")
 }
@@ -82,6 +86,18 @@ export async function saveThemeSettings(
   settings: ThemeSettings,
 ): Promise<ThemeSettings> {
   return invoke<ThemeSettings>("save_theme_settings", {
+    settings,
+  })
+}
+
+export async function getNotificationSettings(): Promise<NotificationSettings> {
+  return invoke<NotificationSettings>("get_notification_settings")
+}
+
+export async function saveNotificationSettings(
+  settings: NotificationSettings,
+): Promise<NotificationSettings> {
+  return invoke<NotificationSettings>("save_notification_settings", {
     settings,
   })
 }

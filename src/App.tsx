@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
 import { CircleCheckBig, RefreshCw, Settings2 } from "lucide-react"
 
 import { AccountCard } from "@/components/account-card"
@@ -27,6 +27,11 @@ import {
   type RuntimeStatus,
 } from "@/lib/runtime-service"
 import type { CodexAccount } from "@/features/accounts/types"
+import {
+  getNotificationSettings,
+  type NotificationSettings,
+} from "@/lib/settings-service"
+import { showSystemNotification } from "@/lib/tray-service"
 
 export default function App() {
   const { t } = useI18n()
@@ -83,6 +88,16 @@ export default function App() {
   )
 }
 
+type NextResetCandidate = {
+  account: CodexAccount
+  kind: "fiveHour" | "weekly"
+  resetsAt: number
+}
+
+function resetEventKey(candidate: NextResetCandidate) {
+  return `${candidate.account.id}:${candidate.kind}:${candidate.resetsAt}`
+}
+
 function CodexGaugeApp() {
   const { locale, t } = useI18n()
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -92,6 +107,10 @@ function CodexGaugeApp() {
   const [nowSeconds, setNowSeconds] = useState(() =>
     Math.floor(Date.now() / 1000),
   )
+  const [notificationSettings, setNotificationSettings] =
+    useState<NotificationSettings | null>(null)
+  const pendingResetRef = useRef<NextResetCandidate | null>(null)
+  const notifiedResetKeysRef = useRef(new Set<string>())
 
   const {
     accounts,
@@ -142,6 +161,28 @@ function CodexGaugeApp() {
     }
   }, [])
 
+  useEffect(() => {
+    let disposed = false
+
+    void getNotificationSettings()
+      .then((settings) => {
+        if (!disposed) {
+          setNotificationSettings(settings)
+        }
+      })
+      .catch(() => {
+        if (!disposed) {
+          setNotificationSettings({
+            resetNotificationsEnabled: true,
+          })
+        }
+      })
+
+    return () => {
+      disposed = true
+    }
+  }, [])
+
   async function handleSwitchAccount(accountId: string) {
     const accountLabel = accounts.find((account) => account.id === accountId)?.label
 
@@ -174,12 +215,6 @@ function CodexGaugeApp() {
       : "app.accountCountMany",
     { count: accounts.length },
   )
-
-  type NextResetCandidate = {
-    account: CodexAccount
-    kind: "fiveHour" | "weekly"
-    resetsAt: number
-  }
 
   const nextReset = accounts.reduce<NextResetCandidate | null>(
     (current, account) => {
@@ -214,6 +249,56 @@ function CodexGaugeApp() {
     },
     null,
   )
+
+  useEffect(() => {
+    if (notificationSettings?.resetNotificationsEnabled !== true) {
+      pendingResetRef.current = null
+      return
+    }
+
+    const pending = pendingResetRef.current
+
+    if (pending && nowSeconds >= pending.resetsAt) {
+      const key = resetEventKey(pending)
+
+      pendingResetRef.current = null
+
+      if (!notifiedResetKeysRef.current.has(key)) {
+        notifiedResetKeysRef.current.add(key)
+
+        const bodyKey =
+          pending.kind === "weekly"
+            ? "notifications.weeklyResetBody"
+            : "notifications.fiveHourResetBody"
+
+        void showSystemNotification(
+          t("notifications.resetTitle"),
+          t(bodyKey, { account: pending.account.label }),
+        ).catch(() => undefined)
+      }
+    }
+
+    if (nextReset && nextReset.resetsAt > nowSeconds) {
+      const key = resetEventKey(nextReset)
+
+      if (!notifiedResetKeysRef.current.has(key)) {
+        pendingResetRef.current = nextReset
+      }
+    } else if (
+      pendingResetRef.current &&
+      pendingResetRef.current.resetsAt > nowSeconds
+    ) {
+      pendingResetRef.current = null
+    }
+  }, [
+    nextReset?.account.id,
+    nextReset?.account.label,
+    nextReset?.kind,
+    nextReset?.resetsAt,
+    notificationSettings?.resetNotificationsEnabled,
+    nowSeconds,
+    t,
+  ])
 
   const nextResetTime = formatResetTime(
     nextReset?.resetsAt ?? null,
@@ -404,6 +489,7 @@ function CodexGaugeApp() {
             await refresh()
           }}
           onRefreshSaved={updateRefreshSettings}
+          onNotificationSaved={setNotificationSettings}
         />
       </div>
     </main>

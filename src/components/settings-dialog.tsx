@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react"
-import { Globe2, Info, Network, RefreshCw } from "lucide-react"
+import { Bell, Globe2, Info, Network, RefreshCw } from "lucide-react"
 
 import { AboutSettingsPanel } from "@/components/about-settings"
 import { GeneralSettingsPanel } from "@/components/general-settings"
+import { NotificationSettingsPanel } from "@/components/notification-settings"
 import { ProxySettingsPanel } from "@/components/proxy-settings"
 import { RefreshSettingsPanel } from "@/components/refresh-settings"
 import {
@@ -14,9 +15,17 @@ import {
 } from "@/components/ui/dialog"
 import { useI18n } from "@/i18n"
 import type { TranslationKey } from "@/i18n/resources/en-US"
-import type { RefreshSettings } from "@/lib/settings-service"
+import type {
+  NotificationSettings,
+  RefreshSettings,
+} from "@/lib/settings-service"
 
-export type SettingsTab = "general" | "proxy" | "polling" | "about"
+export type SettingsTab =
+  | "general"
+  | "proxy"
+  | "polling"
+  | "notifications"
+  | "about"
 
 type SettingsDialogProps = {
   open: boolean
@@ -24,6 +33,7 @@ type SettingsDialogProps = {
   onOpenChange: (open: boolean) => void
   onProxySaved?: () => void | Promise<void>
   onRefreshSaved?: (settings: RefreshSettings) => void | Promise<void>
+  onNotificationSaved?: (settings: NotificationSettings) => void | Promise<void>
 }
 
 const tabs: Array<{
@@ -47,6 +57,11 @@ const tabs: Array<{
     icon: RefreshCw,
   },
   {
+    id: "notifications",
+    labelKey: "settings.notifications",
+    icon: Bell,
+  },
+  {
     id: "about",
     labelKey: "settings.about",
     icon: Info,
@@ -59,6 +74,7 @@ export function SettingsDialog({
   onOpenChange,
   onProxySaved,
   onRefreshSaved,
+  onNotificationSaved,
 }: SettingsDialogProps) {
   const { t } = useI18n()
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab)
@@ -116,6 +132,10 @@ export function SettingsDialog({
 
             {activeTab === "polling" ? (
               <RefreshSettingsPanel onSaved={onRefreshSaved} />
+            ) : null}
+
+            {activeTab === "notifications" ? (
+              <NotificationSettingsPanel onSaved={onNotificationSaved} />
             ) : null}
 
             {activeTab === "about" ? (

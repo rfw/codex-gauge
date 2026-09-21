@@ -171,9 +171,8 @@ pub(crate) fn hide_main_window_to_tray(app: AppHandle) -> Result<(), String> {
         .map_err(|error| format!("Unable to hide CodexGauge to the system tray: {error}"))
 }
 
-#[tauri::command]
-pub(crate) fn show_tray_close_notification(
-    app: AppHandle,
+fn show_native_notification(
+    app: &AppHandle,
     title: String,
     body: String,
 ) -> Result<(), String> {
@@ -183,9 +182,27 @@ pub(crate) fn show_tray_close_notification(
         .body(body)
         .show()
         .map_err(|error| {
-            log::error!("Unable to show native tray notification: {error}");
+            log::error!("Unable to show native system notification: {error}");
             "Unable to show the system notification.".to_string()
         })
+}
+
+#[tauri::command]
+pub(crate) fn show_tray_close_notification(
+    app: AppHandle,
+    title: String,
+    body: String,
+) -> Result<(), String> {
+    show_native_notification(&app, title, body)
+}
+
+#[tauri::command]
+pub(crate) fn show_system_notification(
+    app: AppHandle,
+    title: String,
+    body: String,
+) -> Result<(), String> {
+    show_native_notification(&app, title, body)
 }
 
 fn restore_main_window<R: Runtime>(app: &AppHandle<R>) {
