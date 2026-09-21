@@ -33,9 +33,17 @@ import {
   type NotificationSettings,
 } from "@/lib/settings-service"
 import { showSystemNotification } from "@/lib/tray-service"
+import { useAnalytics } from "@/hooks/useAnalytics"
+
+type AccountsState = ReturnType<typeof useAccounts>
 
 export default function App() {
   const { t } = useI18n()
+  const accountState = useAccounts()
+  const { accounts, isLoading } = accountState
+  const { posthog, appVersion, captureDailyActive } = useAnalytics(accounts.length)
+  const analyticsCapturedRef = useRef(false)
+
   const [runtimeStatus, setRuntimeStatus] =
     useState<RuntimeStatus | null>(null)
 
@@ -62,6 +70,32 @@ export default function App() {
     }
   }, [])
 
+  useEffect(() => {
+    if (
+      isLoading ||
+      !posthog ||
+      !appVersion ||
+      analyticsCapturedRef.current
+    ) {
+      return
+    }
+
+    analyticsCapturedRef.current = true
+
+    posthog.capture("app_started", {
+      account_count: accounts.length,
+      app_version: appVersion,
+    })
+
+    captureDailyActive()
+  }, [
+    isLoading,
+    posthog,
+    appVersion,
+    accounts.length,
+    captureDailyActive,
+  ])
+
   let content: ReactNode
 
   if (!runtimeStatus) {
@@ -77,7 +111,7 @@ export default function App() {
       </main>
     )
   } else {
-    content = <CodexGaugeApp />
+    content = <CodexGaugeApp accountState={accountState} />
   }
 
   return (
@@ -99,7 +133,11 @@ function resetEventKey(candidate: NextResetCandidate) {
   return `${candidate.account.id}:${candidate.kind}:${candidate.resetsAt}`
 }
 
-function CodexGaugeApp() {
+function CodexGaugeApp({
+  accountState,
+}: {
+  accountState: AccountsState
+}) {
   const { locale, t } = useI18n()
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsTab, setSettingsTab] =
@@ -130,7 +168,7 @@ function CodexGaugeApp() {
     cancelReauthentication,
     deleteAccount,
     updateRefreshSettings,
-  } = useAccounts()
+  } = accountState
 
   function openSettings(tab: SettingsTab = "general") {
     setSettingsTab(tab)

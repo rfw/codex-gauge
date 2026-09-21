@@ -16,6 +16,16 @@ import {
   ThemeProvider,
 } from "@/theme"
 import { AppUpdateProvider } from "@/update"
+import { PostHogProvider } from '@posthog/react'
+import {APP_CONFIG} from "@/config/app-config.ts";
+
+const options = {
+  api_host: APP_CONFIG.posthogHost,
+  autocapture: false,
+  capture_pageview: false,
+  capture_pageleave: false,
+  disable_session_recording: true,
+} as const
 
 async function bootstrap() {
   const [initialLanguage, initialTheme] = await Promise.all([
@@ -32,14 +42,16 @@ async function bootstrap() {
   flushSync(() => {
     root.render(
       <StrictMode>
-        <ThemeProvider initialTheme={initialTheme}>
-          <I18nProvider initialLanguage={initialLanguage}>
-            <AppUpdateProvider>
-              <App />
-              <Toaster timeout={3000} limit={3} />
-            </AppUpdateProvider>
-          </I18nProvider>
-        </ThemeProvider>
+        <PostHogProvider apiKey={import.meta.env.VITE_POSTHOG_PROJECT_TOKEN} options={options}>
+          <ThemeProvider initialTheme={initialTheme}>
+            <I18nProvider initialLanguage={initialLanguage}>
+              <AppUpdateProvider>
+                <App />
+                <Toaster timeout={3000} limit={3} />
+              </AppUpdateProvider>
+            </I18nProvider>
+          </ThemeProvider>
+        </PostHogProvider>
       </StrictMode>,
     )
   })
