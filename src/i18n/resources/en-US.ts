@@ -198,6 +198,7 @@ export const enUS = {
   "update.later": "Later",
   "update.skipVersion": "Skip this version",
   "update.upToDate": "You're up to date.",
+  "update.manualUpToDate": "Check complete. You're up to date.",
   "update.available": "{{version}} is available.",
   "update.checkFailed": "Unable to check for updates. Check your network or proxy settings and try again.",
   "update.downloadFailed": "Unable to download the update. Check your network or proxy settings and retry. Make sure GitHub Releases is reachable.",

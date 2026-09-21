@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react"
 import { ExternalLink, LoaderCircle, RefreshCw } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -17,6 +18,39 @@ export function AboutSettingsPanel() {
     availableUpdate,
     checkNow,
   } = useAppUpdate()
+  const [manualUpToDateVisible, setManualUpToDateVisible] = useState(false)
+  const manualFeedbackTimeoutRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (manualFeedbackTimeoutRef.current !== null) {
+        window.clearTimeout(manualFeedbackTimeoutRef.current)
+      }
+    }
+  }, [])
+
+  async function handleCheckNow() {
+    setManualUpToDateVisible(false)
+
+    if (manualFeedbackTimeoutRef.current !== null) {
+      window.clearTimeout(manualFeedbackTimeoutRef.current)
+      manualFeedbackTimeoutRef.current = null
+    }
+
+    try {
+      const update = await checkNow()
+
+      if (!update) {
+        setManualUpToDateVisible(true)
+        manualFeedbackTimeoutRef.current = window.setTimeout(() => {
+          setManualUpToDateVisible(false)
+          manualFeedbackTimeoutRef.current = null
+        }, 4000)
+      }
+    } catch {
+      // The shared update state renders the manual check error below.
+    }
+  }
 
   return (
     <div>
@@ -50,7 +84,7 @@ export function AboutSettingsPanel() {
                 size="sm"
                 className="h-7 shrink-0 px-2 text-sm"
                 disabled={checking}
-                onClick={() => void checkNow().catch(() => undefined)}
+                onClick={() => void handleCheckNow()}
             >
               {checking ? (
                   <LoaderCircle className="size-3 animate-spin" />
@@ -63,8 +97,12 @@ export function AboutSettingsPanel() {
             </Button>
           </div>
 
-          {result === "upToDate" ? (
-              <p className="mt-1.5 text-xs text-muted-foreground">
+          {!checking && manualUpToDateVisible ? (
+              <p className="mt-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                {t("update.manualUpToDate")}
+              </p>
+          ) : !checking && result === "upToDate" ? (
+              <p className="mt-1.5 text-xs text-emerald-600 dark:text-emerald-400">
                 {t("update.upToDate")}
               </p>
           ) : null}

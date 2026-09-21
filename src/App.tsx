@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react"
-import { CircleCheckBig, RefreshCw, Settings2 } from "lucide-react"
+import { RefreshCw, Settings2 } from "lucide-react"
 
 import { AccountCard } from "@/components/account-card"
 import { AddAccountDialog } from "@/components/add-account-dialog"
@@ -11,6 +11,7 @@ import {
   type SettingsTab,
 } from "@/components/settings-dialog"
 import { Button } from "@/components/ui/button"
+import { toast } from "@/components/ui/toast"
 import { useAccounts } from "@/features/accounts/use-accounts"
 import { useI18n } from "@/i18n"
 import {
@@ -101,7 +102,6 @@ function resetEventKey(candidate: NextResetCandidate) {
 function CodexGaugeApp() {
   const { locale, t } = useI18n()
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [switchSuccessAccount, setSwitchSuccessAccount] = useState<string | null>(null)
   const [settingsTab, setSettingsTab] =
     useState<SettingsTab>("general")
   const [nowSeconds, setNowSeconds] = useState(() =>
@@ -136,20 +136,6 @@ function CodexGaugeApp() {
     setSettingsTab(tab)
     setSettingsOpen(true)
   }
-
-  useEffect(() => {
-    if (!switchSuccessAccount) {
-      return
-    }
-
-    const timeout = window.setTimeout(() => {
-      setSwitchSuccessAccount(null)
-    }, 2500)
-
-    return () => {
-      window.clearTimeout(timeout)
-    }
-  }, [switchSuccessAccount])
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -189,7 +175,10 @@ function CodexGaugeApp() {
     await switchAccount(accountId)
 
     if (accountLabel) {
-      setSwitchSuccessAccount(accountLabel)
+      toast.add({
+        title: t("account.switchSuccess", { account: accountLabel }),
+        type: "success",
+      })
     }
   }
 
@@ -465,21 +454,6 @@ function CodexGaugeApp() {
             ))
           )}
         </section>
-
-        {switchSuccessAccount ? (
-          <div
-            role="status"
-            aria-live="polite"
-            className="fixed left-1/2 top-12 z-50 flex max-w-[320px] -translate-x-1/2 items-center gap-2 rounded-md border bg-popover px-3 py-2 text-sm text-popover-foreground shadow-lg"
-          >
-            <CircleCheckBig className="size-4 shrink-0 text-emerald-500" />
-            <span>
-              {t("account.switchSuccess", {
-                account: switchSuccessAccount,
-              })}
-            </span>
-          </div>
-        ) : null}
 
         <SettingsDialog
           open={settingsOpen}

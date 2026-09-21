@@ -3,6 +3,7 @@ import { flushSync } from "react-dom"
 import { createRoot } from "react-dom/client"
 
 import App from "./App"
+import { Toaster } from "@/components/ui/toast"
 import "./index.css"
 import {
   I18nProvider,
@@ -35,6 +36,7 @@ async function bootstrap() {
           <I18nProvider initialLanguage={initialLanguage}>
             <AppUpdateProvider>
               <App />
+              <Toaster timeout={3000} limit={3} />
             </AppUpdateProvider>
           </I18nProvider>
         </ThemeProvider>

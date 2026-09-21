@@ -200,6 +200,7 @@ export const zhCN: Record<TranslationKey, string> = {
   "update.later": "稍后",
   "update.skipVersion": "忽略此版本",
   "update.upToDate": "当前已是最新版本。",
+  "update.manualUpToDate": "检查完成，已是最新版本",
   "update.available": "发现新版本 {{version}}。",
   "update.checkFailed": "检查更新失败，请检查网络或代理设置后重试。",
   "update.downloadFailed": "下载更新失败，请检查网络或代理设置后重试；如果 GitHub 访问受限，请确认 GitHub Releases 可以正常访问。",
