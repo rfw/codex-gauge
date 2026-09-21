@@ -97,29 +97,34 @@ export function AboutSettingsPanel() {
             </Button>
           </div>
 
-          {!checking && manualUpToDateVisible ? (
-              <p className="mt-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+          <div className="mt-1.5 h-4 overflow-hidden">
+            {checking ? (
+              <p className="truncate text-xs leading-4 text-muted-foreground">
+                {t("update.checking")}
+              </p>
+            ) : manualUpToDateVisible ? (
+              <p className="truncate text-xs font-medium leading-4 text-emerald-600 dark:text-emerald-400">
                 {t("update.manualUpToDate")}
               </p>
-          ) : !checking && result === "upToDate" ? (
-              <p className="mt-1.5 text-xs text-emerald-600 dark:text-emerald-400">
-                {t("update.upToDate")}
-              </p>
-          ) : null}
-
-          {result === "available" && availableUpdate ? (
-              <p className="mt-1.5 text-xs text-muted-foreground">
+            ) : result === "available" && availableUpdate ? (
+              <p className="truncate text-xs leading-4 text-muted-foreground">
                 {t("update.available", {
                   version: `v${availableUpdate.version}`,
                 })}
               </p>
-          ) : null}
-
-          {result === "error" && error ? (
-              <p className="mt-1.5 text-xs text-destructive">
+            ) : result === "error" && error ? (
+              <p
+                className="truncate text-xs leading-4 text-destructive"
+                title={t("update.checkFailed")}
+              >
                 {t("update.checkFailed")}
               </p>
-          ) : null}
+            ) : result === "upToDate" ? (
+              <p className="truncate text-xs leading-4 text-muted-foreground">
+                {t("update.upToDate")}
+              </p>
+            ) : null}
+          </div>
         </div>
 
         <div className="px-3 py-2.5">
