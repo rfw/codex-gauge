@@ -235,6 +235,7 @@ export const enUS = {
   "errors.usageAppServer": "Codex app-server could not provide usage data.",
   "errors.usageUnavailable": "Usage data is temporarily unavailable.",
   "errors.codexRunning": "Codex is currently running ({{processes}}). Close Codex CLI or Codex Desktop before switching accounts.",
+  "errors.codexBackgroundStop": "Unable to stop Codex background services. Close Codex completely and try again.",
   "errors.switchCredentialUnavailable": "The saved authentication for this account is unavailable. Sign in again and try again.",
   "errors.switchAuthExpired": "The sign-in for this account has expired. Sign in again before switching.",
   "errors.switchPreflightNetwork": "Unable to verify the target account. Check your network or proxy settings and try again.",

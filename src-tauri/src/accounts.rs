@@ -1101,7 +1101,16 @@ pub async fn switch_codex_account(
         let target_auth = validated_target.auth_bytes;
         usage_results.insert(target.id.clone(), Ok(validated_target.usage));
 
-        let main_auth_path = main_codex_home(&app)?.join("auth.json");
+        // The persistent Codex daemon can outlive the TUI and keep the previous
+        // account cached in memory. Stop all recognized managed background
+        // services only after the target account has been validated, so a
+        // failed preflight does not unnecessarily tear down the daemon. The
+        // runtime guard re-checks interactive Codex sessions before and after
+        // stopping background services and never force-kills user sessions.
+        let codex_home = main_codex_home(&app)?;
+        runtime::stop_codex_background_services(&codex_home)?;
+
+        let main_auth_path = codex_home.join("auth.json");
 
         if let Some(parent) = main_auth_path.parent() {
             fs::create_dir_all(parent)
@@ -1168,7 +1177,9 @@ pub async fn switch_codex_account(
             Ok(snapshot)
         }
         Ok(Err(error))
-            if error.starts_with("Codex is currently running (") || error == "Account not found." =>
+            if error.starts_with("Codex is currently running (")
+                || error == "Unable to stop Codex background services."
+                || error == "Account not found." =>
         {
             Err(error)
         }

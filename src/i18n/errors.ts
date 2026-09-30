@@ -4,6 +4,7 @@ import type { TranslationKey } from "@/i18n/resources/en-US"
 const exactErrors: Partial<Record<string, TranslationKey>> = {
   "Unable to refresh Codex usage.": "errors.refresh",
   "Unable to switch Codex account.": "errors.switch",
+  "Unable to stop Codex background services.": "errors.codexBackgroundStop",
   "Stored account authentication is unavailable.":
     "errors.switchCredentialUnavailable",
   "Stored account sign-in has expired. Re-add the account before switching.":

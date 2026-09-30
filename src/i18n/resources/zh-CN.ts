@@ -237,6 +237,7 @@ export const zhCN: Record<TranslationKey, string> = {
   "errors.usageAppServer": "Codex app-server 无法提供用量数据。",
   "errors.usageUnavailable": "用量数据暂时不可用。",
   "errors.codexRunning": "Codex 当前正在运行（{{processes}}）。切换账号前请关闭 Codex CLI 或 Codex Desktop。",
+  "errors.codexBackgroundStop": "无法停止 Codex 后台服务，请完全退出 Codex 后重试。",
   "errors.switchCredentialUnavailable": "该账号保存的认证信息不可用，请重新登录后再试。",
   "errors.switchAuthExpired": "该账号登录已失效，请重新登录后再切换。",
   "errors.switchPreflightNetwork": "无法验证目标账号，请检查网络或代理设置后重试。",
