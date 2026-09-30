@@ -830,7 +830,7 @@ fn spawn_login_app_server(
 
     #[cfg(not(target_os = "windows"))]
     {
-        let mut command = Command::new("codex");
+        let mut command = Command::new(runtime::codex_executable());
         command
             .args(["-c", config_override, "app-server", "--stdio"])
             .env("CODEX_HOME", codex_home)
@@ -1268,14 +1268,8 @@ pub async fn delete_codex_account(
 
         save_metadata(&app, &metadata)?;
 
-        let credential_path = credential_dir(&app)?.join(&removed.credential_file);
-
-        match fs::remove_file(&credential_path) {
-            Ok(()) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => {
-                log::warn!("Could not remove an orphaned credential file: {error}");
-            }
+        if let Err(error) = remove_account_auth(&app, &removed) {
+            log::warn!("Could not remove stored account credentials: {error}");
         }
 
         emit_accounts_changed(&app);
@@ -1845,7 +1839,7 @@ fn run_codex_login(
 
     #[cfg(not(target_os = "windows"))]
     {
-        let mut command = Command::new("codex");
+        let mut command = Command::new(runtime::codex_executable());
 
         command
             .args(["-c", config_override, "login"])
@@ -1915,6 +1909,7 @@ pub(crate) fn persist_account_auth(
     save_metadata(app, &metadata)
 }
 
+#[cfg(target_os = "windows")]
 fn save_account_auth(
     app: &AppHandle,
     credential_file: &str,
@@ -1927,6 +1922,27 @@ fn save_account_auth(
         .map_err(|error| format!("Failed to securely store Codex credentials: {error}"))
 }
 
+#[cfg(target_os = "macos")]
+fn save_account_auth(
+    _app: &AppHandle,
+    credential_file: &str,
+    auth_bytes: &[u8],
+) -> Result<(), String> {
+    macos_keychain_entry(credential_file)?
+        .set_secret(auth_bytes)
+        .map_err(|error| format!("macOS Keychain storage failed: {error}"))
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+fn save_account_auth(
+    _app: &AppHandle,
+    _credential_file: &str,
+    _auth_bytes: &[u8],
+) -> Result<(), String> {
+    Err("Secure credential storage is supported on Windows and macOS only.".to_string())
+}
+
+#[cfg(target_os = "windows")]
 pub(crate) fn load_account_auth(
     app: &AppHandle,
     account: &StoredAccount,
@@ -1936,6 +1952,58 @@ pub(crate) fn load_account_auth(
         .map_err(|error| format!("Failed to read stored credentials: {error}"))?;
 
     unprotect_secret(&encrypted)
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn load_account_auth(
+    _app: &AppHandle,
+    account: &StoredAccount,
+) -> Result<Vec<u8>, String> {
+    macos_keychain_entry(&account.credential_file)?
+        .get_secret()
+        .map_err(|error| format!("Failed to read credentials from macOS Keychain: {error}"))
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+pub(crate) fn load_account_auth(
+    _app: &AppHandle,
+    _account: &StoredAccount,
+) -> Result<Vec<u8>, String> {
+    Err("Secure credential storage is supported on Windows and macOS only.".to_string())
+}
+
+#[cfg(target_os = "windows")]
+fn remove_account_auth(app: &AppHandle, account: &StoredAccount) -> Result<(), String> {
+    let path = credential_dir(app)?.join(&account.credential_file);
+
+    match fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!("Failed to remove stored credential file: {error}")),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn remove_account_auth(_app: &AppHandle, account: &StoredAccount) -> Result<(), String> {
+    let entry = macos_keychain_entry(&account.credential_file)?;
+
+    match entry.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(error) => Err(format!("Failed to remove credentials from macOS Keychain: {error}")),
+    }
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+fn remove_account_auth(_app: &AppHandle, _account: &StoredAccount) -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn macos_keychain_entry(credential_file: &str) -> Result<keyring::Entry, String> {
+    const SERVICE: &str = "com.codexgauge.desktop.codex-auth";
+
+    keyring::Entry::new(SERVICE, credential_file)
+        .map_err(|error| format!("Unable to access macOS Keychain: {error}"))
 }
 
 #[cfg(target_os = "windows")]
@@ -1948,16 +2016,6 @@ fn protect_secret(input: &[u8]) -> Result<Vec<u8>, String> {
 fn unprotect_secret(input: &[u8]) -> Result<Vec<u8>, String> {
     windows_dpapi::decrypt_data(input, windows_dpapi::Scope::User, None)
         .map_err(|error| format!("Windows DPAPI decryption failed: {error}"))
-}
-
-#[cfg(not(target_os = "windows"))]
-fn protect_secret(_input: &[u8]) -> Result<Vec<u8>, String> {
-    Err("Secure credential storage is currently implemented for Windows only.".to_string())
-}
-
-#[cfg(not(target_os = "windows"))]
-fn unprotect_secret(_input: &[u8]) -> Result<Vec<u8>, String> {
-    Err("Secure credential storage is currently implemented for Windows only.".to_string())
 }
 
 pub(crate) fn parse_auth_identity(auth_bytes: &[u8]) -> Result<AuthIdentity, String> {

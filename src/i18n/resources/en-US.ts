@@ -122,7 +122,7 @@ export const enUS = {
   "proxy.noProxy": "No proxy",
   "proxy.noProxyDescription": "Connect directly without a proxy.",
   "proxy.systemProxy": "System proxy",
-  "proxy.systemProxyDescription": "Use the proxy configured in Windows.",
+  "proxy.systemProxyDescription": "Use the proxy configured by the operating system.",
   "proxy.customProxy": "Custom proxy",
   "proxy.customProxyDescription": "Use an HTTP or HTTPS proxy you specify.",
   "proxy.httpUrl": "HTTP proxy URL",

@@ -1,7 +1,9 @@
 use serde::Serialize;
 use std::collections::BTreeSet;
 use std::fs;
-use std::path::Path;
+use std::env;
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use std::process::{Command, Output, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -12,6 +14,8 @@ const CODEX_INSTALL_GUIDE_URL: &str = "https://github.com/openai/codex";
 const BACKGROUND_STOP_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const UPDATER_GRACE_TIMEOUT: Duration = Duration::from_secs(2);
 const FORCE_KILL_TIMEOUT: Duration = Duration::from_secs(2);
+
+static RESOLVED_CODEX_EXECUTABLE: OnceLock<PathBuf> = OnceLock::new();
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -32,6 +36,87 @@ struct CodexProcessSnapshot {
     pid: u32,
     role: CodexProcessRole,
     label: String,
+}
+
+
+pub(crate) fn codex_executable() -> PathBuf {
+    if let Some(path) = RESOLVED_CODEX_EXECUTABLE.get() {
+        return path.clone();
+    }
+
+    #[cfg(target_os = "macos")]
+    if let Some(path) = resolve_macos_codex_executable() {
+        let _ = RESOLVED_CODEX_EXECUTABLE.set(path.clone());
+        return path;
+    }
+
+    PathBuf::from("codex")
+}
+
+#[cfg(target_os = "macos")]
+fn resolve_macos_codex_executable() -> Option<PathBuf> {
+    if let Some(path) = find_executable_on_current_path("codex") {
+        return Some(path);
+    }
+
+    let mut candidates = vec![
+        PathBuf::from("/opt/homebrew/bin/codex"),
+        PathBuf::from("/usr/local/bin/codex"),
+    ];
+
+    if let Some(home) = env::var_os("HOME").map(PathBuf::from) {
+        candidates.extend([
+            home.join(".local/bin/codex"),
+            home.join(".npm-global/bin/codex"),
+            home.join(".volta/bin/codex"),
+            home.join(".bun/bin/codex"),
+            home.join(".asdf/shims/codex"),
+            home.join(".local/share/mise/shims/codex"),
+            home.join("Library/pnpm/codex"),
+        ]);
+
+        append_versioned_codex_candidates(&home.join(".nvm/versions/node"), "bin/codex", &mut candidates);
+        append_versioned_codex_candidates(
+            &home.join(".fnm/node-versions"),
+            "installation/bin/codex",
+            &mut candidates,
+        );
+        append_versioned_codex_candidates(
+            &home.join(".local/share/fnm/node-versions"),
+            "installation/bin/codex",
+            &mut candidates,
+        );
+    }
+
+    candidates.into_iter().find(|path| path.is_file())
+}
+
+#[cfg(target_os = "macos")]
+fn find_executable_on_current_path(name: &str) -> Option<PathBuf> {
+    let path = env::var_os("PATH")?;
+
+    env::split_paths(&path)
+        .map(|directory| directory.join(name))
+        .find(|candidate| candidate.is_file())
+}
+
+#[cfg(target_os = "macos")]
+fn append_versioned_codex_candidates(root: &Path, suffix: &str, candidates: &mut Vec<PathBuf>) {
+    let Ok(entries) = fs::read_dir(root) else {
+        return;
+    };
+
+    let mut version_dirs = entries
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.is_dir())
+        .collect::<Vec<_>>();
+
+    version_dirs.sort_by(|left, right| right.cmp(left));
+
+    for version_dir in version_dirs {
+        candidates.push(version_dir.join(suffix));
+    }
 }
 
 #[tauri::command]
@@ -370,7 +455,7 @@ fn codex_version_output() -> Result<Output, std::io::Error> {
 
     #[cfg(not(target_os = "windows"))]
     {
-        Command::new("codex")
+        Command::new(codex_executable())
             .arg("--version")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -399,7 +484,7 @@ fn codex_daemon_stop_output(codex_home: &Path) -> Result<Output, std::io::Error>
 
     #[cfg(not(target_os = "windows"))]
     {
-        Command::new("codex")
+        Command::new(codex_executable())
             .args(["app-server", "daemon", "stop"])
             .env("CODEX_HOME", codex_home)
             .env("NO_COLOR", "1")
@@ -497,6 +582,7 @@ fn classify_codex_process(
         if executable.contains("\\openai\\codex\\")
             || executable.contains("/openai/codex/")
             || executable.contains("openai.codex_")
+            || executable.contains("/codex.app/contents/macos/")
         {
             return Some((CodexProcessRole::Blocking, "Codex Desktop runtime"));
         }
@@ -695,6 +781,20 @@ mod tests {
         assert_eq!(
             result,
             Some((CodexProcessRole::Blocking, "Codex app-server"))
+        );
+    }
+
+    #[test]
+    fn classifies_macos_codex_desktop_bundle() {
+        let result = classify_codex_process(
+            "codex",
+            "/Applications/Codex.app/Contents/MacOS/Codex",
+            "/Applications/Codex.app/Contents/MacOS/Codex",
+        );
+
+        assert_eq!(
+            result,
+            Some((CodexProcessRole::Blocking, "Codex Desktop runtime"))
         );
     }
 

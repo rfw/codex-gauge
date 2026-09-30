@@ -8,6 +8,7 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 use tauri::AppHandle;
 
+use crate::runtime;
 use crate::accounts::{
     self, BankedResetView, BankedResetsView, CreditBalanceView, QuotaWindowView,
     StoredAccount,
@@ -510,7 +511,7 @@ fn spawn_app_server(
 
     #[cfg(not(target_os = "windows"))]
     {
-        let mut command = Command::new("codex");
+        let mut command = Command::new(runtime::codex_executable());
 
         command
             .args([

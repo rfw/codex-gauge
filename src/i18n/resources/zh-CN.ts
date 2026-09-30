@@ -124,7 +124,7 @@ export const zhCN: Record<TranslationKey, string> = {
   "proxy.noProxy": "不使用代理",
   "proxy.noProxyDescription": "直接连接，不使用代理。",
   "proxy.systemProxy": "系统代理",
-  "proxy.systemProxyDescription": "使用 Windows 中配置的系统代理。",
+  "proxy.systemProxyDescription": "使用操作系统中配置的系统代理。",
   "proxy.customProxy": "自定义代理",
   "proxy.customProxyDescription": "使用你指定的 HTTP 或 HTTPS 代理。",
   "proxy.httpUrl": "HTTP 代理地址",

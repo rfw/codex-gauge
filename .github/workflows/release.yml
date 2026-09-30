@@ -1,4 +1,4 @@
-name: Release Windows
+name: Release Desktop
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   build-windows:
-    name: Build and Release Windows
+    name: Build Windows
     runs-on: windows-latest
 
     steps:
@@ -38,7 +38,7 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Build and upload release artifacts
+      - name: Build and upload Windows release artifacts
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -49,7 +49,9 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: "CodexGauge ${{ github.ref_name }}"
           releaseBody: |
-            Windows release of CodexGauge.
+            Windows and macOS release of CodexGauge.
+
+            The macOS DMG is a Universal build for both Intel and Apple Silicon Macs.
 
             CodexGauge is an independent project and is not affiliated with,
             endorsed by, or sponsored by OpenAI.
@@ -58,7 +60,52 @@ jobs:
           uploadUpdaterJson: true
           updaterJsonPreferNsis: true
 
+  build-macos:
+    name: Build macOS Universal
+    needs: build-windows
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Rust targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build and upload Universal macOS release artifacts
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          VITE_POSTHOG_PROJECT_TOKEN: ${{ vars.VITE_POSTHOG_PROJECT_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "CodexGauge ${{ github.ref_name }}"
+          releaseDraft: true
+          prerelease: false
+          args: --target universal-apple-darwin
+          uploadUpdaterJson: true
+
+  publish-release:
+    name: Publish Release
+    needs:
+      - build-windows
+      - build-macos
+    runs-on: ubuntu-latest
+
+    steps:
       - name: Publish release as latest
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit "${{ github.ref_name }}" --draft=false --latest
+        run: gh release edit "${{ github.ref_name }}" --repo "${{ github.repository }}" --draft=false --latest

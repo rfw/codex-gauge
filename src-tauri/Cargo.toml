@@ -27,10 +27,12 @@ tempfile = "3"
 atomic-write-file = "0.3.1"
 notify = "8.2"
 sysinfo = "0.38.4"
-tauri-plugin-prevent-default = { version = "5", features = ["platform-windows"] }
-
 [target.'cfg(windows)'.dependencies]
 windows-dpapi = "0.2.0"
+tauri-plugin-prevent-default = { version = "5", features = ["platform-windows"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3.6.3", default-features = false, features = ["apple-native"] }
 
 [profile.release]
 codegen-units = 1
