@@ -153,8 +153,13 @@ pub async fn install_app_update(
 
     log::info!("Application update {target_version} installed successfully");
 
-    #[cfg(not(target_os = "windows"))]
-    app.restart();
+    #[cfg(target_os = "windows")]
+    {
+        Ok(())
+    }
 
-    Ok(())
+    #[cfg(not(target_os = "windows"))]
+    {
+        app.restart()
+    }
 }

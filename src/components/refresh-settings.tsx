@@ -2,6 +2,7 @@ import { useEffect, useState } from "react"
 import { LoaderCircle } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { NativeSelect } from "@/components/ui/native-select"
 import { useI18n } from "@/i18n"
 import type { TranslationKey } from "@/i18n/resources/en-US"
 import {
@@ -148,11 +149,11 @@ export function RefreshSettingsPanel({
           {t("polling.interval")}
         </label>
 
-        <select
+        <NativeSelect
           id="polling-interval"
           value={intervalSeconds}
           disabled={!enabled}
-          className="mt-1.5 h-8 w-full rounded-md border bg-background px-2.5 text-sm outline-none disabled:cursor-not-allowed disabled:opacity-50"
+          containerClassName="mt-1.5"
           onChange={(event) => {
             setIntervalSeconds(Number(event.target.value))
             setMessage(null)
@@ -167,7 +168,7 @@ export function RefreshSettingsPanel({
                 : ""}
             </option>
           ))}
-        </select>
+        </NativeSelect>
       </div>
 
       {error ? (

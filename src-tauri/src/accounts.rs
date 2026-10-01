@@ -2166,6 +2166,7 @@ fn app_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(path)
 }
 
+#[cfg(target_os = "windows")]
 fn credential_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let path = app_data_dir(app)?.join("credentials");
 

@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { LoaderCircle } from "lucide-react"
 
+import { NativeSelect } from "@/components/ui/native-select"
 import { useI18n } from "@/i18n"
 import type { LanguagePreference } from "@/i18n/types"
 import { useTheme } from "@/theme"
@@ -76,11 +77,11 @@ export function GeneralSettingsPanel() {
             {t("general.language")}
           </label>
 
-          <select
+          <NativeSelect
             id="app-language"
             value={language}
             disabled={savingField !== null}
-            className="mt-1.5 h-8 w-full rounded-md border bg-background px-2.5 text-sm outline-none disabled:cursor-not-allowed disabled:opacity-50"
+            containerClassName="mt-1.5"
             onChange={(event) =>
               void handleLanguageChange(
                 event.target.value as LanguagePreference,
@@ -96,7 +97,7 @@ export function GeneralSettingsPanel() {
             <option value="zh-CN">
               {t("general.simplifiedChinese")}
             </option>
-          </select>
+          </NativeSelect>
 
           <p className="mt-1.5 text-xs text-muted-foreground">
             {t("general.languageDescription")}
@@ -111,11 +112,11 @@ export function GeneralSettingsPanel() {
             {t("general.theme")}
           </label>
 
-          <select
+          <NativeSelect
             id="app-theme"
             value={theme}
             disabled={savingField !== null}
-            className="mt-1.5 h-8 w-full rounded-md border bg-background px-2.5 text-sm outline-none disabled:cursor-not-allowed disabled:opacity-50"
+            containerClassName="mt-1.5"
             onChange={(event) =>
               void handleThemeChange(
                 event.target.value as ThemePreference,
@@ -131,7 +132,7 @@ export function GeneralSettingsPanel() {
             <option value="dark">
               {t("general.dark")}
             </option>
-          </select>
+          </NativeSelect>
 
           <p className="mt-1.5 text-xs text-muted-foreground">
             {t("general.themeDescription")}

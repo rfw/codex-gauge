@@ -1,4 +1,21 @@
 {
+  "app": {
+    "windows": [
+      {
+        "title": "CodexGauge",
+        "width": 700,
+        "height": 620,
+        "resizable": false,
+        "maximizable": false,
+        "fullscreen": false,
+        "center": true,
+        "decorations": true,
+        "hiddenTitle": true,
+        "titleBarStyle": "Overlay",
+        "visible": false
+      }
+    ]
+  },
   "bundle": {
     "targets": ["dmg"],
     "macOS": {
