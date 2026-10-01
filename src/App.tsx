@@ -492,7 +492,7 @@ function CodexGaugeApp({
                 onPollReauthentication={pollReauthentication}
                 onCancelReauthentication={cancelReauthentication}
                 onDelete={deleteAccount}
-                allowDeleteActive={accounts.length === 1}
+                isOnlyAccount={accounts.length === 1}
               />
             ))
           )}

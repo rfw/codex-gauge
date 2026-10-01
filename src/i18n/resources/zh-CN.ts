@@ -100,7 +100,7 @@ export const zhCN: Record<TranslationKey, string> = {
   "add.description": "CodexGauge 会在隔离环境中打开标准 Codex 登录流程，不会更改你当前的 Codex 账号或本地会话。",
   "add.notice": "登录凭据仅用于账号切换和额度读取，并由系统安全存储。macOS 上 CodexGauge 只访问自己保存的 Codex 账号数据，不会读取钥匙串中的其他密码或信息。",
   "add.waiting": "等待登录...",
-  "add.continue": "使用 ChatGPT 继续",
+  "add.continue": "生成登录链接",
   "add.restart": "重新生成登录链接",
   "add.retry": "重新尝试",
 

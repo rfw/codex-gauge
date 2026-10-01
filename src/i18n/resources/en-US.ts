@@ -98,7 +98,7 @@ export const enUS = {
   "add.description": "CodexGauge will open the normal Codex sign-in flow in an isolated environment. Your existing Codex account and local sessions will not be changed.",
   "add.notice": "Credentials are used only for account switching and usage checks and are stored with the operating system’s secure credential storage. On macOS, CodexGauge accesses only the Codex account data it saved and does not read other Keychain passwords or data.",
   "add.waiting": "Waiting for sign-in...",
-  "add.continue": "Continue with ChatGPT",
+  "add.continue": "Generate sign-in link",
   "add.restart": "Generate a new sign-in link",
   "add.retry": "Try again",
 

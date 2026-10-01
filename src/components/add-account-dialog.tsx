@@ -172,12 +172,6 @@ export function AddAccountDialog({
       setSessionId(response.sessionId)
       setAuthUrl(response.authUrl)
       setPhase("waiting")
-
-      try {
-        await openExternalUrl(response.authUrl)
-      } catch {
-        setError(t("reauth.openFailed"))
-      }
     } catch (cause) {
       if (generation !== generationRef.current) {
         return
