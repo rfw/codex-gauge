@@ -423,7 +423,7 @@ function AccountCardComponent({
             </AlertDialogTitle>
 
             <AlertDialogDescription>
-              {account.isActive && allowDeleteActive
+              {account.isActive && isOnlyAccount
                 ? t("account.deleteCurrentOnlyDescription")
                 : t("account.deleteDescription")}
             </AlertDialogDescription>
