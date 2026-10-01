@@ -21,6 +21,9 @@
     ]
   },
   "bundle": {
+    "icon": [
+      "icons/icon.icns"
+    ],
     "targets": [
       "dmg"
     ],
