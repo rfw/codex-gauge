@@ -43,6 +43,7 @@ type AccountCardProps = {
   onPollReauthentication: (sessionId: string) => Promise<ReauthPollResponse>
   onCancelReauthentication: (sessionId: string) => Promise<void>
   onDelete: (accountId: string) => Promise<void>
+  allowDeleteActive?: boolean
 }
 
 function AccountCardComponent({
@@ -54,6 +55,7 @@ function AccountCardComponent({
   onPollReauthentication,
   onCancelReauthentication,
   onDelete,
+  allowDeleteActive = false,
 }: AccountCardProps) {
   const { locale, t } = useI18n()
   const [isEditing, setIsEditing] = useState(false)
@@ -88,6 +90,7 @@ function AccountCardComponent({
   const showUsageErrorOnly = Boolean(
     localizedUsageError && !hasQuotaWindow,
   )
+  const canDelete = !account.isActive || allowDeleteActive
 
   useEffect(() => {
     if (!isEditing) {
@@ -219,40 +222,44 @@ function AccountCardComponent({
               </div>
             </div>
 
-            {!account.isActive ? (
+            {canDelete ? (
               <div className="-mr-1 flex shrink-0 items-center gap-1">
-                <TooltipProvider delay={250}>
-                  <Tooltip>
-                    <TooltipTrigger
-                      type="button"
-                      className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:ring-2 focus-visible:ring-ring/50"
-                      aria-label={t("account.deleteAria")}
-                      onClick={() => setDeleteConfirmOpen(true)}
-                    >
-                      <Trash2 className="size-3.5" />
-                    </TooltipTrigger>
+                {canDelete ? (
+                  <TooltipProvider delay={250}>
+                    <Tooltip>
+                      <TooltipTrigger
+                        type="button"
+                        className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:ring-2 focus-visible:ring-ring/50"
+                        aria-label={t("account.deleteAria")}
+                        onClick={() => setDeleteConfirmOpen(true)}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </TooltipTrigger>
 
-                    <TooltipContent side="top">
-                      {t("account.delete")}
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
+                      <TooltipContent side="top">
+                        {t("account.delete")}
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                ) : null}
 
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-7 px-2.5 text-sm"
-                  disabled={isSwitching}
-                  onClick={() => setSwitchConfirmOpen(true)}
-                >
-                  {isSwitching ? (
-                    <LoaderCircle className="size-3 animate-spin" />
-                  ) : null}
-                  {isSwitching
-                    ? t("account.switching")
-                    : t("account.switch")}
-                </Button>
+                {!account.isActive ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2.5 text-sm"
+                    disabled={isSwitching}
+                    onClick={() => setSwitchConfirmOpen(true)}
+                  >
+                    {isSwitching ? (
+                      <LoaderCircle className="size-3 animate-spin" />
+                    ) : null}
+                    {isSwitching
+                      ? t("account.switching")
+                      : t("account.switch")}
+                  </Button>
+                ) : null}
               </div>
             ) : null}
           </div>
@@ -410,7 +417,9 @@ function AccountCardComponent({
             </AlertDialogTitle>
 
             <AlertDialogDescription>
-              {t("account.deleteDescription")}
+              {account.isActive && allowDeleteActive
+                ? t("account.deleteCurrentOnlyDescription")
+                : t("account.deleteDescription")}
             </AlertDialogDescription>
           </AlertDialogHeader>
 

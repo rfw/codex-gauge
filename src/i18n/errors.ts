@@ -35,6 +35,8 @@ const exactErrors: Partial<Record<string, TranslationKey>> = {
   "Account not found.": "errors.accountNotFound",
   "The current account cannot be deleted. Switch to another account first.":
     "errors.currentAccountDelete",
+  "Close Codex CLI or Codex Desktop before deleting the current account.":
+    "errors.currentAccountDeleteRunning",
   "Codex CLI was not found.": "errors.usageCliNotFound",
   "Codex did not return usage data in time.": "errors.usageTimeout",
   "Codex authentication could not be verified.": "errors.usageAuth",
