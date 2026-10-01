@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import { CheckCircle2, LoaderCircle } from "lucide-react"
+import { LoaderCircle } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -310,21 +310,9 @@ export function ProxySettingsPanel({
             }}
           />
 
-          <div className="mt-1.5 min-h-4 text-xs">
-            {customProxy.trim() && !validation.error && validation.scheme ? (
-              <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
-                <CheckCircle2 className="size-3" />
-                {t("proxy.detected", {
-                  scheme: validation.scheme,
-                })}
-                {validation.normalized ? ` · ${validation.normalized}` : ""}
-              </span>
-            ) : (
-              <span className="text-muted-foreground">
-                {t("proxy.help")}
-              </span>
-            )}
-          </div>
+          <p className="mt-1.5 text-xs text-muted-foreground">
+            {t("proxy.help")}
+          </p>
         </div>
       ) : null}
 

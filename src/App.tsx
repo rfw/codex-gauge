@@ -115,7 +115,7 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-muted/20 text-foreground">
+    <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
       <AppHeader />
       {content}
       <TrayCloseNotice />
