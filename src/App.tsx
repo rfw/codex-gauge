@@ -34,6 +34,7 @@ import {
 } from "@/lib/settings-service"
 import { showSystemNotification } from "@/lib/tray-service"
 import { useAnalytics } from "@/hooks/useAnalytics"
+import { APP_CONTENT_ROOT_ID, appContentRootRef } from "@/lib/app-content-root"
 
 type AccountsState = ReturnType<typeof useAccounts>
 
@@ -117,8 +118,14 @@ export default function App() {
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
       <AppHeader />
-      {content}
-      <TrayCloseNotice />
+      <div
+        ref={appContentRootRef}
+        id={APP_CONTENT_ROOT_ID}
+        className="relative isolate flex min-h-0 flex-1 flex-col overflow-hidden"
+      >
+        {content}
+        <TrayCloseNotice />
+      </div>
     </div>
   )
 }
