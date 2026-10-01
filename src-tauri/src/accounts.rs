@@ -1,5 +1,7 @@
 use atomic_write_file::AtomicWriteFile;
 use base64::engine::general_purpose::{URL_SAFE, URL_SAFE_NO_PAD};
+#[cfg(target_os = "macos")]
+use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use notify::{Event, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
@@ -12,6 +14,8 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, ExitStatus, Stdio};
 use std::sync::{mpsc, Mutex};
+#[cfg(target_os = "macos")]
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -29,6 +33,35 @@ const LOGIN_APP_SERVER_RESPONSE_TIMEOUT: Duration = Duration::from_secs(10);
 const LOGIN_PROCESS_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const LOGIN_MAX_STDERR_LINES: usize = 12;
 const MAX_PARALLEL_USAGE_READS: usize = 2;
+
+#[cfg(target_os = "macos")]
+const MACOS_KEYCHAIN_SERVICE: &str = "CodexGauge Saved Codex Accounts";
+#[cfg(target_os = "macos")]
+const MACOS_KEYCHAIN_ACCOUNT: &str = "credentials";
+#[cfg(target_os = "macos")]
+const LEGACY_MACOS_KEYCHAIN_SERVICE: &str = "com.codexgauge.desktop.codex-auth";
+#[cfg(target_os = "macos")]
+const MACOS_CREDENTIAL_VAULT_VERSION: u32 = 1;
+
+#[cfg(target_os = "macos")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct MacosCredentialVault {
+    version: u32,
+    credentials: HashMap<String, String>,
+}
+
+#[cfg(target_os = "macos")]
+impl Default for MacosCredentialVault {
+    fn default() -> Self {
+        Self {
+            version: MACOS_CREDENTIAL_VAULT_VERSION,
+            credentials: HashMap::new(),
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+static MACOS_CREDENTIAL_VAULT: OnceLock<Mutex<Option<MacosCredentialVault>>> = OnceLock::new();
 
 pub struct AuthWatcherState {
     self_writes: Mutex<Vec<SelfWriteGuard>>,
@@ -1928,9 +1961,38 @@ fn save_account_auth(
     credential_file: &str,
     auth_bytes: &[u8],
 ) -> Result<(), String> {
-    macos_keychain_entry(credential_file)?
-        .set_secret(auth_bytes)
-        .map_err(|error| format!("macOS Keychain storage failed: {error}"))
+    let encoded = STANDARD.encode(auth_bytes);
+    let cache = macos_credential_vault_cache();
+    let mut guard = cache
+        .lock()
+        .map_err(|_| "macOS credential cache lock was poisoned.".to_string())?;
+    let vault = ensure_macos_credential_vault_loaded(&mut guard)?;
+
+    if vault
+        .credentials
+        .get(credential_file)
+        .is_some_and(|stored| stored == &encoded)
+    {
+        return Ok(());
+    }
+
+    let previous = vault.credentials.insert(credential_file.to_string(), encoded);
+
+    if let Err(error) = persist_macos_credential_vault(vault) {
+        match previous {
+            Some(previous) => {
+                vault
+                    .credentials
+                    .insert(credential_file.to_string(), previous);
+            }
+            None => {
+                vault.credentials.remove(credential_file);
+            }
+        }
+        return Err(error);
+    }
+
+    Ok(())
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
@@ -1959,9 +2021,33 @@ pub(crate) fn load_account_auth(
     _app: &AppHandle,
     account: &StoredAccount,
 ) -> Result<Vec<u8>, String> {
-    macos_keychain_entry(&account.credential_file)?
+    let cache = macos_credential_vault_cache();
+    let mut guard = cache
+        .lock()
+        .map_err(|_| "macOS credential cache lock was poisoned.".to_string())?;
+    let vault = ensure_macos_credential_vault_loaded(&mut guard)?;
+
+    if let Some(encoded) = vault.credentials.get(&account.credential_file) {
+        return STANDARD
+            .decode(encoded)
+            .map_err(|error| format!("Stored macOS Keychain credential is invalid: {error}"));
+    }
+
+    // One-time compatibility path for builds that stored one Keychain item per
+    // account. Once read successfully, move it into the single CodexGauge vault
+    // so subsequent refreshes use the in-process cache and do not repeatedly
+    // trigger macOS Keychain authorization prompts.
+    let auth_bytes = legacy_macos_keychain_entry(&account.credential_file)?
         .get_secret()
-        .map_err(|error| format!("Failed to read credentials from macOS Keychain: {error}"))
+        .map_err(|error| format!("Failed to read credentials from macOS Keychain: {error}"))?;
+
+    vault.credentials.insert(
+        account.credential_file.clone(),
+        STANDARD.encode(&auth_bytes),
+    );
+    persist_macos_credential_vault(vault)?;
+
+    Ok(auth_bytes)
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
@@ -1985,8 +2071,25 @@ fn remove_account_auth(app: &AppHandle, account: &StoredAccount) -> Result<(), S
 
 #[cfg(target_os = "macos")]
 fn remove_account_auth(_app: &AppHandle, account: &StoredAccount) -> Result<(), String> {
-    let entry = macos_keychain_entry(&account.credential_file)?;
+    let cache = macos_credential_vault_cache();
+    let mut guard = cache
+        .lock()
+        .map_err(|_| "macOS credential cache lock was poisoned.".to_string())?;
+    let vault = ensure_macos_credential_vault_loaded(&mut guard)?;
 
+    if let Some(previous) = vault.credentials.remove(&account.credential_file) {
+        if let Err(error) = persist_macos_credential_vault(vault) {
+            vault
+                .credentials
+                .insert(account.credential_file.clone(), previous);
+            return Err(error);
+        }
+        return Ok(());
+    }
+
+    // If an account has not yet been migrated into the consolidated vault,
+    // remove its legacy item so deleting an account still removes its secret.
+    let entry = legacy_macos_keychain_entry(&account.credential_file)?;
     match entry.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
         Err(error) => Err(format!("Failed to remove credentials from macOS Keychain: {error}")),
@@ -1999,11 +2102,68 @@ fn remove_account_auth(_app: &AppHandle, _account: &StoredAccount) -> Result<(),
 }
 
 #[cfg(target_os = "macos")]
-fn macos_keychain_entry(credential_file: &str) -> Result<keyring::Entry, String> {
-    const SERVICE: &str = "com.codexgauge.desktop.codex-auth";
+fn macos_credential_vault_cache() -> &'static Mutex<Option<MacosCredentialVault>> {
+    MACOS_CREDENTIAL_VAULT.get_or_init(|| Mutex::new(None))
+}
 
-    keyring::Entry::new(SERVICE, credential_file)
+#[cfg(target_os = "macos")]
+fn ensure_macos_credential_vault_loaded(
+    cache: &mut Option<MacosCredentialVault>,
+) -> Result<&mut MacosCredentialVault, String> {
+    if cache.is_none() {
+        *cache = Some(read_macos_credential_vault()?);
+    }
+
+    cache
+        .as_mut()
+        .ok_or_else(|| "Unable to initialize macOS credential cache.".to_string())
+}
+
+#[cfg(target_os = "macos")]
+fn read_macos_credential_vault() -> Result<MacosCredentialVault, String> {
+    let entry = macos_keychain_entry()?;
+
+    match entry.get_secret() {
+        Ok(bytes) => {
+            let mut vault: MacosCredentialVault = serde_json::from_slice(&bytes)
+                .map_err(|error| format!("Stored macOS Keychain data is invalid: {error}"))?;
+            vault.version = MACOS_CREDENTIAL_VAULT_VERSION;
+            Ok(vault)
+        }
+        Err(keyring::Error::NoEntry) => Ok(MacosCredentialVault::default()),
+        Err(error) => Err(format!("Failed to read CodexGauge data from macOS Keychain: {error}")),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn persist_macos_credential_vault(vault: &MacosCredentialVault) -> Result<(), String> {
+    let entry = macos_keychain_entry()?;
+
+    if vault.credentials.is_empty() {
+        return match entry.delete_credential() {
+            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+            Err(error) => Err(format!("Failed to update CodexGauge data in macOS Keychain: {error}")),
+        };
+    }
+
+    let bytes = serde_json::to_vec(vault)
+        .map_err(|error| format!("Failed to encode macOS Keychain data: {error}"))?;
+
+    entry
+        .set_secret(&bytes)
+        .map_err(|error| format!("macOS Keychain storage failed: {error}"))
+}
+
+#[cfg(target_os = "macos")]
+fn macos_keychain_entry() -> Result<keyring::Entry, String> {
+    keyring::Entry::new(MACOS_KEYCHAIN_SERVICE, MACOS_KEYCHAIN_ACCOUNT)
         .map_err(|error| format!("Unable to access macOS Keychain: {error}"))
+}
+
+#[cfg(target_os = "macos")]
+fn legacy_macos_keychain_entry(credential_file: &str) -> Result<keyring::Entry, String> {
+    keyring::Entry::new(LEGACY_MACOS_KEYCHAIN_SERVICE, credential_file)
+        .map_err(|error| format!("Unable to access legacy macOS Keychain data: {error}"))
 }
 
 #[cfg(target_os = "windows")]

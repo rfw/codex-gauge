@@ -19,7 +19,7 @@ export function AppHeader() {
     <header
       className={cn(
         "flex shrink-0 select-none items-center border-b bg-background/95",
-        macOS ? "h-10" : "h-9",
+        "h-9",
       )}
     >
       <div
@@ -33,7 +33,7 @@ export function AppHeader() {
           }
         }}
       >
-        <div className="pointer-events-none flex items-baseline gap-1.5">
+        <div className="pointer-events-none flex items-center gap-1.5">
           <h1 className="font-inter text-[15px] font-semibold tracking-[-0.03em]">
             <span className="text-[#03aefc]">Codex</span>
             <span className="text-[#d946ef]">Gauge</span>

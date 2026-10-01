@@ -12,12 +12,18 @@
         "decorations": true,
         "hiddenTitle": true,
         "titleBarStyle": "Overlay",
-        "visible": false
+        "visible": false,
+        "trafficLightPosition": {
+          "x": 13,
+          "y": 11
+        }
       }
     ]
   },
   "bundle": {
-    "targets": ["dmg"],
+    "targets": [
+      "dmg"
+    ],
     "macOS": {
       "signingIdentity": "-"
     }

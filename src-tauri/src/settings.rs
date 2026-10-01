@@ -395,11 +395,18 @@ pub(crate) fn configure_codex_command(
                 .as_deref()
                 .ok_or_else(|| "Custom proxy URL is required.".to_string())?;
 
+            // Codex networking does not use one single transport path. In
+            // particular on macOS, some paths consult ALL_PROXY even when
+            // HTTP_PROXY/HTTPS_PROXY are present. Set all standard variants
+            // explicitly because GUI apps also do not reliably inherit shell
+            // proxy variables.
             command
                 .env("HTTP_PROXY", proxy)
                 .env("HTTPS_PROXY", proxy)
+                .env("ALL_PROXY", proxy)
                 .env("http_proxy", proxy)
                 .env("https_proxy", proxy)
+                .env("all_proxy", proxy)
                 .env("NO_PROXY", "localhost,127.0.0.1,::1")
                 .env("no_proxy", "localhost,127.0.0.1,::1");
         }

@@ -95,7 +95,7 @@ export const enUS = {
   "add.trigger": "Add account",
   "add.title": "Add Codex account",
   "add.description": "CodexGauge will open the normal Codex sign-in flow in an isolated environment. Your existing Codex account and local sessions will not be changed.",
-  "add.notice": "Sign in only with an account you own or are authorized to use. CodexGauge will store the resulting credentials locally.",
+  "add.notice": "Credentials are used only for account switching and usage checks and are stored with the operating system’s secure credential storage. On macOS, CodexGauge accesses only the Codex account data it saved and does not read other Keychain passwords or data.",
   "add.waiting": "Waiting for sign-in...",
   "add.continue": "Continue with ChatGPT",
 

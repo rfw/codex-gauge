@@ -272,15 +272,15 @@ export function ReauthenticateAccountDialog({
           ) : null}
 
           {authUrl ? (
-            <div className="space-y-2.5">
-              <div className="space-y-1.5">
+            <div className="min-w-0 space-y-2.5">
+              <div className="min-w-0 space-y-1.5">
                 <p className="text-xs font-medium text-muted-foreground">
                   {t("reauth.urlLabel")}
                 </p>
 
                 <button
                   type="button"
-                  className="block w-full truncate rounded-md border bg-background px-3 py-2 text-left text-xs text-foreground underline-offset-2 transition-colors hover:bg-muted/40 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                  className="block w-full min-w-0 max-w-full overflow-hidden text-ellipsis whitespace-nowrap rounded-md border bg-background px-3 py-2 text-left text-xs text-foreground underline-offset-2 transition-colors hover:bg-muted/40 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
                   title={authUrl}
                   onClick={() => void handleOpenBrowser()}
                 >
