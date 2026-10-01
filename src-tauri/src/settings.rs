@@ -4,11 +4,13 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::Duration;
 use tauri::{AppHandle, Manager};
 
-use crate::usage;
 
 const SETTINGS_VERSION: u32 = 6;
+const PROXY_TEST_URL: &str = "https://chatgpt.com/";
+const PROXY_TEST_TIMEOUT_SECS: u64 = 12;
 
 const PROXY_ENV_KEYS: [&str; 8] = [
     "HTTP_PROXY",
@@ -213,40 +215,79 @@ pub async fn test_proxy_connection(
     let normalized = normalize_proxy_settings(settings)?;
     let mode = normalized.mode;
 
-    let result = tauri::async_runtime::spawn_blocking(move || -> Result<String, String> {
-        usage::test_proxy_connection(&app, &normalized)?;
+    test_chatgpt_reachability(&app, &normalized)
+        .await
+        .map_err(|error| {
+            log::error!(
+                "Proxy connection test failed: mode={mode:?}; target={PROXY_TEST_URL}; {error}"
+            );
+            "Unable to connect to ChatGPT using this proxy setting.".to_string()
+        })?;
 
-        Ok(match normalized.mode {
-            ProxyMode::NoProxy => "Connected without a proxy.".to_string(),
-            ProxyMode::SystemProxy => "Connected using the system proxy.".to_string(),
-            ProxyMode::CustomProxy => {
-                let scheme = normalized
-                    .custom_proxy
-                    .as_deref()
-                    .and_then(|value| value.split_once("://"))
-                    .map(|(scheme, _)| scheme.to_ascii_uppercase())
-                    .unwrap_or_else(|| "HTTP".to_string());
+    log::info!(
+        "Proxy connection test succeeded: mode={mode:?}; target={PROXY_TEST_URL}"
+    );
 
-                format!("Connected using the {scheme} proxy.")
-            }
-        })
+    Ok(match normalized.mode {
+        ProxyMode::NoProxy => "Connected to ChatGPT without a proxy.".to_string(),
+        ProxyMode::SystemProxy => "Connected to ChatGPT using the system proxy.".to_string(),
+        ProxyMode::CustomProxy => {
+            let scheme = normalized
+                .custom_proxy
+                .as_deref()
+                .and_then(|value| value.split_once("://"))
+                .map(|(scheme, _)| scheme.to_ascii_uppercase())
+                .unwrap_or_else(|| "HTTP".to_string());
+
+            format!("Connected to ChatGPT using the {scheme} proxy.")
+        }
     })
-    .await;
+}
 
-    match result {
-        Ok(Ok(message)) => {
-            log::info!("Proxy connection test succeeded: mode={mode:?}");
-            Ok(message)
+async fn test_chatgpt_reachability(
+    app: &AppHandle,
+    settings: &ProxySettings,
+) -> Result<(), String> {
+    let mut builder = reqwest::Client::builder()
+        .timeout(Duration::from_secs(PROXY_TEST_TIMEOUT_SECS))
+        .redirect(reqwest::redirect::Policy::limited(5))
+        .user_agent(format!("CodexGauge/{}", app.package_info().version));
+
+    builder = match settings.mode {
+        ProxyMode::NoProxy => builder.no_proxy(),
+        ProxyMode::SystemProxy => builder,
+        ProxyMode::CustomProxy => {
+            let proxy_url = settings
+                .custom_proxy
+                .as_deref()
+                .ok_or_else(|| "Custom proxy URL is required.".to_string())?;
+            let proxy = reqwest::Proxy::all(proxy_url)
+                .map_err(|error| format!("Invalid proxy configuration: {error}"))?;
+            builder.proxy(proxy)
         }
-        Ok(Err(error)) => {
-            log::error!("Proxy connection test failed: mode={mode:?}; {error}");
-            Err("Unable to connect using this proxy setting.".to_string())
-        }
-        Err(error) => {
-            log::error!("Proxy connection test task failed: mode={mode:?}; {error}");
-            Err("Unable to connect using this proxy setting.".to_string())
-        }
-    }
+    };
+
+    let client = builder
+        .build()
+        .map_err(|error| format!("Failed to prepare connectivity test: {error}"))?;
+
+    let response = client
+        .get(PROXY_TEST_URL)
+        .send()
+        .await
+        .map_err(|error| format!("ChatGPT request failed: {error}"))?;
+
+    // Any HTTP response means DNS, TCP, TLS, and the selected proxy path all
+    // reached ChatGPT. Do not treat authentication/status errors as proxy
+    // failures; account authentication is checked separately by normal Codex
+    // usage requests.
+    log::debug!(
+        "ChatGPT connectivity probe returned HTTP {} from {}",
+        response.status(),
+        response.url()
+    );
+
+    Ok(())
 }
 
 #[tauri::command]

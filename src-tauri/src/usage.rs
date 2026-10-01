@@ -99,14 +99,6 @@ pub(crate) fn finalize_account_usage(
     probe.result
 }
 
-pub(crate) fn test_proxy_connection(
-    app: &AppHandle,
-    proxy: &ProxySettings,
-) -> Result<(), String> {
-    let codex_home = accounts::main_codex_home(app)?;
-    query_rate_limits_with_proxy(&codex_home, proxy).map(|_| ())
-}
-
 pub(crate) fn validate_account_auth_for_switch(
     app: &AppHandle,
     account: &StoredAccount,
