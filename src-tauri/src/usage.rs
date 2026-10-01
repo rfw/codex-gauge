@@ -8,6 +8,7 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 use tauri::AppHandle;
 
+#[cfg(not(target_os = "windows"))]
 use crate::runtime;
 use crate::accounts::{
     self, BankedResetView, BankedResetsView, CreditBalanceView, QuotaWindowView,

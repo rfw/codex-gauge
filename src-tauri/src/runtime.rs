@@ -1,8 +1,12 @@
 use serde::Serialize;
 use std::collections::BTreeSet;
 use std::fs;
+#[cfg(target_os = "macos")]
 use std::env;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(not(target_os = "windows"))]
+use std::path::PathBuf;
+#[cfg(not(target_os = "windows"))]
 use std::sync::OnceLock;
 use std::process::{Command, Output, Stdio};
 use std::thread;
@@ -15,6 +19,7 @@ const BACKGROUND_STOP_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const UPDATER_GRACE_TIMEOUT: Duration = Duration::from_secs(2);
 const FORCE_KILL_TIMEOUT: Duration = Duration::from_secs(2);
 
+#[cfg(not(target_os = "windows"))]
 static RESOLVED_CODEX_EXECUTABLE: OnceLock<PathBuf> = OnceLock::new();
 
 #[derive(Debug, Clone, Serialize)]
@@ -39,6 +44,7 @@ struct CodexProcessSnapshot {
 }
 
 
+#[cfg(not(target_os = "windows"))]
 pub(crate) fn codex_executable() -> PathBuf {
     if let Some(path) = RESOLVED_CODEX_EXECUTABLE.get() {
         return path.clone();

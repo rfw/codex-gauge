@@ -227,6 +227,8 @@ bun run build
 bun tauri dev
 ```
 
+`bun tauri dev` starts Vite and does not replace TypeScript type checking. `bun run build` is required before handing off frontend changes because it runs `tsc` and catches errors such as stale/undefined identifiers that Vite dev mode can otherwise surface only at runtime.
+
 Rust-side changes should also pass Cargo checks/builds when the environment permits.
 
 macOS release validation should include a real packaged build, not only dev mode:
