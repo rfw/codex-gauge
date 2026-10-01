@@ -12,7 +12,7 @@ use std::env;
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, Command, ExitStatus, Stdio};
+use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::{mpsc, Mutex};
 #[cfg(target_os = "macos")]
 use std::sync::OnceLock;
@@ -91,7 +91,7 @@ impl ReauthSessionState {
 }
 
 struct ReauthSession {
-    account_id: String,
+    account_id: Option<String>,
     login_id: String,
     started_at: Instant,
     _temp: tempfile::TempDir,
@@ -275,57 +275,43 @@ pub async fn list_codex_accounts(app: AppHandle) -> Result<AccountsSnapshot, Str
 }
 
 #[tauri::command]
-pub async fn add_codex_account(app: AppHandle) -> Result<AccountsSnapshot, String> {
-    let result: Result<AccountsSnapshot, String> = async {
-        let proxy_settings = settings::load_proxy_settings(&app)?.proxy;
-
-        let temp = tempfile::tempdir()
-            .map_err(|error| format!("Failed to create temporary Codex home: {error}"))?;
-
-        fs::write(temp.path().join("config.toml"), TEMP_CODEX_CONFIG)
-            .map_err(|error| format!("Failed to prepare temporary Codex config: {error}"))?;
-
-        let temp_home = temp.path().to_path_buf();
-
-        let status = tauri::async_runtime::spawn_blocking(move || {
-            run_codex_login(&temp_home, &proxy_settings)
-        })
-        .await
-        .map_err(|error| format!("Codex login task failed: {error}"))??;
-
-        if !status.success() {
-            return Err(match status.code() {
-                Some(code) => format!("Codex login did not complete successfully (exit code {code})."),
-                None => "Codex login was interrupted.".to_string(),
-            });
-        }
-
-        let auth_path = temp.path().join("auth.json");
-        let auth_bytes = fs::read(&auth_path).map_err(|error| {
-            format!(
-                "Codex login completed but no readable auth.json was produced: {error}"
-            )
-        })?;
-
-        let identity = parse_auth_identity(&auth_bytes)?;
-        persist_account_auth(&app, &identity, &auth_bytes)?;
-
-        tauri::async_runtime::spawn_blocking(move || build_snapshot_with_usage(&app))
-            .await
-            .map_err(|error| format!("Failed to refresh accounts after login: {error}"))?
-    }
-    .await;
-
-    match result {
-        Ok(snapshot) => {
-            log::info!("Codex account added successfully");
-            Ok(snapshot)
+pub async fn start_add_codex_account(
+    app: AppHandle,
+) -> Result<ReauthStartResponse, String> {
+    match tauri::async_runtime::spawn_blocking(move || start_add_account_session(&app)).await {
+        Ok(Ok(response)) => Ok(response),
+        Ok(Err(error)) if error == "Another Codex sign-in is already in progress." => Err(error),
+        Ok(Err(error)) => {
+            log::error!("Unable to start Codex account sign-in: {error}");
+            Err("Unable to start Codex sign-in.".to_string())
         }
         Err(error) => {
-            log::error!("Unable to add Codex account: {error}");
-            Err("Unable to add Codex account.".to_string())
+            log::error!("Codex account sign-in start task failed: {error}");
+            Err("Unable to start Codex sign-in.".to_string())
         }
     }
+}
+
+#[tauri::command]
+pub async fn poll_add_codex_account(
+    app: AppHandle,
+    session_id: String,
+) -> Result<ReauthPollResponse, String> {
+    match tauri::async_runtime::spawn_blocking(move || poll_sign_in_session(&app, &session_id)).await {
+        Ok(result) => result,
+        Err(error) => {
+            log::error!("Codex account sign-in poll task failed: {error}");
+            Err("Unable to complete Codex sign-in.".to_string())
+        }
+    }
+}
+
+#[tauri::command]
+pub fn cancel_add_codex_account(
+    app: AppHandle,
+    session_id: String,
+) -> Result<(), String> {
+    cancel_sign_in_session(&app, &session_id)
 }
 
 #[tauri::command]
@@ -362,7 +348,7 @@ pub async fn poll_reauthenticate_codex_account(
     session_id: String,
 ) -> Result<ReauthPollResponse, String> {
     match tauri::async_runtime::spawn_blocking(move || {
-        poll_reauthentication_session(&app, &session_id)
+        poll_sign_in_session(&app, &session_id)
     })
     .await
     {
@@ -379,19 +365,27 @@ pub fn cancel_reauthenticate_codex_account(
     app: AppHandle,
     session_id: String,
 ) -> Result<(), String> {
+    cancel_sign_in_session(&app, &session_id)
+}
+
+fn cancel_sign_in_session(app: &AppHandle, session_id: &str) -> Result<(), String> {
     let state = app.state::<ReauthSessionState>();
     let mut sessions = state
         .sessions
         .lock()
         .map_err(|_| "Codex sign-in state lock was poisoned.".to_string())?;
 
-    let Some(mut session) = sessions.remove(&session_id) else {
+    let Some(mut session) = sessions.remove(session_id) else {
         return Ok(());
     };
 
     drop(sessions);
     cancel_reauth_session(&mut session);
     Ok(())
+}
+
+fn start_add_account_session(app: &AppHandle) -> Result<ReauthStartResponse, String> {
+    start_sign_in_session(app, None)
 }
 
 fn start_reauthentication_session(
@@ -405,6 +399,13 @@ fn start_reauthentication_session(
         }
     }
 
+    start_sign_in_session(app, Some(account_id.to_string()))
+}
+
+fn start_sign_in_session(
+    app: &AppHandle,
+    account_id: Option<String>,
+) -> Result<ReauthStartResponse, String> {
     {
         let state = app.state::<ReauthSessionState>();
         let sessions = state
@@ -578,7 +579,7 @@ fn start_reauthentication_session(
     };
 
     let session = ReauthSession {
-        account_id: account_id.to_string(),
+        account_id,
         login_id: login_id.clone(),
         started_at: Instant::now(),
         _temp: temp,
@@ -602,7 +603,7 @@ fn start_reauthentication_session(
     })
 }
 
-fn poll_reauthentication_session(
+fn poll_sign_in_session(
     app: &AppHandle,
     session_id: &str,
 ) -> Result<ReauthPollResponse, String> {
@@ -735,7 +736,11 @@ fn poll_reauthentication_session(
             // before updating the real auth file so it cannot be mistaken for
             // a user-run Codex process by any other runtime checks.
             terminate_login_child(&mut session.child);
-            let finalize_result = finalize_reauthentication(app, &mut session);
+            let finalize_result = if session.account_id.is_some() {
+                finalize_reauthentication(app, &mut session)
+            } else {
+                finalize_add_account(app, &mut session)
+            };
 
             match finalize_result {
                 Ok(snapshot) => Ok(ReauthPollResponse {
@@ -766,7 +771,7 @@ fn poll_reauthentication_session(
     }
 }
 
-fn finalize_reauthentication(
+fn finalize_add_account(
     app: &AppHandle,
     session: &mut ReauthSession,
 ) -> Result<AccountsSnapshot, String> {
@@ -776,12 +781,30 @@ fn finalize_reauthentication(
     })?;
     let identity = parse_auth_identity(&auth_bytes)?;
 
-    if identity.id != session.account_id {
+    persist_account_auth(app, &identity, &auth_bytes)?;
+    emit_accounts_changed(app);
+    build_snapshot_with_usage(app)
+}
+
+fn finalize_reauthentication(
+    app: &AppHandle,
+    session: &mut ReauthSession,
+) -> Result<AccountsSnapshot, String> {
+    let auth_path = session._temp.path().join("auth.json");
+    let auth_bytes = fs::read(&auth_path).map_err(|error| {
+        format!("Codex sign-in completed but no readable auth.json was produced: {error}")
+    })?;
+    let identity = parse_auth_identity(&auth_bytes)?;
+    let account_id = session
+        .account_id
+        .as_deref()
+        .ok_or_else(|| "Missing reauthentication account identity.".to_string())?;
+
+    if identity.id != account_id {
         return Err("Signed-in account does not match the selected account.".to_string());
     }
 
-    let target_is_active =
-        current_account_id(app).as_deref() == Some(session.account_id.as_str());
+    let target_is_active = current_account_id(app).as_deref() == Some(account_id);
 
     // Reauthentication keeps the same account identity, so refreshing its
     // credential file does not require the switch-account process guard.
@@ -1281,25 +1304,90 @@ pub async fn delete_codex_account(
     account_id: String,
 ) -> Result<AccountsSnapshot, String> {
     match tauri::async_runtime::spawn_blocking(move || {
-        let active_id = current_account_id(&app);
-
-        if active_id.as_deref() == Some(account_id.as_str()) {
-            return Err(
-                "The current account cannot be deleted. Switch to another account first."
-                    .to_string(),
-            );
-        }
-
         let mut metadata = load_metadata(&app)?;
         let position = metadata
             .accounts
             .iter()
             .position(|account| account.id == account_id)
             .ok_or_else(|| "Account not found.".to_string())?;
+        let active_id = current_account_id(&app);
+        let deleting_active = active_id.as_deref() == Some(account_id.as_str());
+
+        if deleting_active && metadata.accounts.len() > 1 {
+            return Err(
+                "The current account cannot be deleted. Switch to another account first."
+                    .to_string(),
+            );
+        }
+
+        // The only active account may be removed, but deleting it must also
+        // sign Codex out locally. Otherwise ~/.codex/auth.json would remain
+        // active and the filesystem watcher would import the same account again.
+        let mut active_auth_backup = None;
+        let mut active_auth_path = None;
+
+        if deleting_active {
+            let codex_home = main_codex_home(&app)?;
+            runtime::stop_codex_background_services(&codex_home).map_err(|error| {
+                if error.starts_with("Codex is currently running") {
+                    "Close Codex CLI or Codex Desktop before deleting the current account."
+                        .to_string()
+                } else {
+                    error
+                }
+            })?;
+
+            let auth_path = codex_home.join("auth.json");
+            active_auth_backup = match fs::read(&auth_path) {
+                Ok(bytes) => Some(bytes),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                Err(error) => {
+                    return Err(format!(
+                        "Failed to read current Codex authentication before deletion: {error}"
+                    ))
+                }
+            };
+
+            match fs::remove_file(&auth_path) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    return Err(format!(
+                        "Failed to remove current Codex authentication: {error}"
+                    ))
+                }
+            }
+
+            clear_observed_auth(&app)?;
+            active_auth_path = Some(auth_path);
+        }
 
         let removed = metadata.accounts.remove(position);
 
-        save_metadata(&app, &metadata)?;
+        if let Err(error) = save_metadata(&app, &metadata) {
+            // Keep account deletion atomic enough for the user's active login:
+            // if metadata persistence fails after auth.json was removed, restore
+            // the previous auth file so Codex is not unexpectedly signed out.
+            if let (Some(path), Some(auth_bytes)) =
+                (active_auth_path.as_ref(), active_auth_backup.as_ref())
+            {
+                if let Err(restore_error) = atomic_write(path, auth_bytes) {
+                    log::error!(
+                        "Unable to restore Codex authentication after delete rollback: {restore_error}"
+                    );
+                } else if let Ok(identity) = parse_auth_identity(auth_bytes) {
+                    if let Err(remember_error) =
+                        remember_observed_auth(&app, &identity, auth_bytes)
+                    {
+                        log::warn!(
+                            "Unable to restore auth watcher state after delete rollback: {remember_error}"
+                        );
+                    }
+                }
+            }
+
+            return Err(error);
+        }
 
         if let Err(error) = remove_account_auth(&app, &removed) {
             log::warn!("Could not remove stored account credentials: {error}");
@@ -1313,7 +1401,8 @@ pub async fn delete_codex_account(
         Ok(Ok(snapshot)) => Ok(snapshot),
         Ok(Err(error))
             if error == "Account not found."
-                || error.starts_with("The current account cannot be deleted.") =>
+                || error.starts_with("The current account cannot be deleted.")
+                || error == "Close Codex CLI or Codex Desktop before deleting the current account." =>
         {
             Err(error)
         }
@@ -1755,6 +1844,17 @@ pub(crate) fn remember_active_auth(
     remember_observed_auth(app, identity, auth_bytes)
 }
 
+fn clear_observed_auth(app: &AppHandle) -> Result<(), String> {
+    let state = app.state::<AuthWatcherState>();
+    let mut observed = state
+        .last_observed_auth
+        .lock()
+        .map_err(|_| "Auth watcher observed-auth lock was poisoned.".to_string())?;
+
+    *observed = None;
+    Ok(())
+}
+
 fn remember_observed_auth(
     app: &AppHandle,
     identity: &AuthIdentity,
@@ -1817,74 +1917,6 @@ fn is_expected_self_write(app: &AppHandle, hash: &str) -> Result<bool, String> {
 
 fn emit_accounts_changed(app: &AppHandle) {
     let _ = app.emit("codex-accounts-changed", ());
-}
-
-fn run_codex_login(
-    codex_home: &Path,
-    proxy: &settings::ProxySettings,
-) -> Result<ExitStatus, String> {
-    let config_override = settings::codex_config_override(proxy);
-
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-
-        let probe = Command::new("cmd.exe")
-            .args(["/D", "/C", "where", "codex"])
-            .creation_flags(CREATE_NO_WINDOW)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .map_err(|error| format!("Failed to locate Codex CLI: {error}"))?;
-
-        if !probe.success() {
-            return Err(
-                "Codex CLI was not found in PATH. Install Codex CLI or restart CodexGauge after updating PATH."
-                    .to_string(),
-            );
-        }
-
-        let mut command = Command::new("cmd.exe");
-
-        command
-            .args([
-                "/D",
-                "/C",
-                "codex",
-                "-c",
-                config_override,
-                "login",
-            ])
-            .env("CODEX_HOME", codex_home)
-            .env("NO_COLOR", "1")
-            .creation_flags(CREATE_NO_WINDOW)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
-
-        settings::configure_codex_command(&mut command, proxy)?;
-
-        command
-            .status()
-            .map_err(|error| format!("Failed to start Codex login: {error}"))
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        let mut command = Command::new(runtime::codex_executable());
-
-        command
-            .args(["-c", config_override, "login"])
-            .env("CODEX_HOME", codex_home)
-            .env("NO_COLOR", "1");
-
-        settings::configure_codex_command(&mut command, proxy)?;
-
-        command
-            .status()
-            .map_err(|error| format!("Failed to start Codex login: {error}"))
-    }
 }
 
 fn import_current_account_if_needed(app: &AppHandle) -> Result<(), String> {

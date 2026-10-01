@@ -70,6 +70,7 @@ export const zhCN: Record<TranslationKey, string> = {
   "account.reauthenticating": "登录中...",
   "account.deleteTitle": "删除 {{account}}？",
   "account.deleteDescription": "这会从 CodexGauge 中移除该账号，并删除本地保存的加密凭证副本。不会删除 ChatGPT 账号，也不会删除任何 Codex 项目文件。",
+  "account.deleteCurrentOnlyDescription": "这是当前唯一账号。删除后会从 CodexGauge 中移除保存的凭证，并退出本机当前 Codex 登录。不会删除 ChatGPT 账号，也不会删除任何 Codex 项目文件。",
   "account.deleting": "删除中...",
 
   "quota.fiveHour": "5 小时",
@@ -100,6 +101,8 @@ export const zhCN: Record<TranslationKey, string> = {
   "add.notice": "登录凭据仅用于账号切换和额度读取，并由系统安全存储。macOS 上 CodexGauge 只访问自己保存的 Codex 账号数据，不会读取钥匙串中的其他密码或信息。",
   "add.waiting": "等待登录...",
   "add.continue": "使用 ChatGPT 继续",
+  "add.restart": "重新生成登录链接",
+  "add.retry": "重新尝试",
 
   "reauth.title": "重新登录",
   "reauth.description": "请在 5 分钟内完成 ChatGPT 登录",
@@ -230,6 +233,7 @@ export const zhCN: Record<TranslationKey, string> = {
   "errors.accountNameEmpty": "账号名称不能为空。",
   "errors.accountNotFound": "未找到该账号。",
   "errors.currentAccountDelete": "当前账号不能删除，请先切换到其他账号。",
+  "errors.currentAccountDeleteRunning": "删除当前账号前，请先关闭 Codex CLI 或 Codex Desktop。",
   "errors.usageCliNotFound": "未找到 Codex CLI。",
   "errors.usageTimeout": "Codex 未能及时返回用量数据。",
   "errors.usageAuth": "该账号的 Codex 登录已失效，请重新登录以更新凭证。",

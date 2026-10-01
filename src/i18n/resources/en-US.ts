@@ -68,6 +68,7 @@ export const enUS = {
   "account.reauthenticating": "Signing in...",
   "account.deleteTitle": "Delete {{account}}?",
   "account.deleteDescription": "This removes the account from CodexGauge and deletes its locally stored encrypted credential copy. It does not delete the ChatGPT account or any Codex project files.",
+  "account.deleteCurrentOnlyDescription": "This is the only current account. Deleting it removes the saved credential from CodexGauge and signs out the current local Codex session. It does not delete the ChatGPT account or any Codex project files.",
   "account.deleting": "Deleting...",
 
   "quota.fiveHour": "5 hour",
@@ -98,6 +99,8 @@ export const enUS = {
   "add.notice": "Credentials are used only for account switching and usage checks and are stored with the operating system’s secure credential storage. On macOS, CodexGauge accesses only the Codex account data it saved and does not read other Keychain passwords or data.",
   "add.waiting": "Waiting for sign-in...",
   "add.continue": "Continue with ChatGPT",
+  "add.restart": "Generate a new sign-in link",
+  "add.retry": "Try again",
 
   "reauth.title": "Sign in again",
   "reauth.description": "Complete ChatGPT sign-in within 5 minutes.",
@@ -228,6 +231,7 @@ export const enUS = {
   "errors.accountNameEmpty": "Account name cannot be empty.",
   "errors.accountNotFound": "Account not found.",
   "errors.currentAccountDelete": "The current account cannot be deleted. Switch to another account first.",
+  "errors.currentAccountDeleteRunning": "Close Codex CLI or Codex Desktop before deleting the current account.",
   "errors.usageCliNotFound": "Codex CLI was not found.",
   "errors.usageTimeout": "Codex did not return usage data in time.",
   "errors.usageAuth": "This account's Codex sign-in is no longer valid. Sign in again to refresh its credentials.",

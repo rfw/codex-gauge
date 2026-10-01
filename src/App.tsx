@@ -162,7 +162,9 @@ function CodexGaugeApp({
     refresh,
     switchAccount,
     renameAccount,
-    addAccount,
+    startAddAccount,
+    pollAddAccount,
+    cancelAddAccount,
     startReauthentication,
     pollReauthentication,
     cancelReauthentication,
@@ -347,8 +349,10 @@ function CodexGaugeApp({
 
             <div className="flex shrink-0 items-center gap-1.5">
               <AddAccountDialog
-                  onAdd={addAccount}
-                  disabled={isLoading}
+                onStart={startAddAccount}
+                onPoll={pollAddAccount}
+                onCancel={cancelAddAccount}
+                disabled={isLoading}
               />
 
               <Button
@@ -488,6 +492,7 @@ function CodexGaugeApp({
                 onPollReauthentication={pollReauthentication}
                 onCancelReauthentication={cancelReauthentication}
                 onDelete={deleteAccount}
+                allowDeleteActive={accounts.length === 1}
               />
             ))
           )}

@@ -47,8 +47,24 @@ export async function renameCodexAccount(
   })
 }
 
-export async function addCodexAccount(): Promise<AccountsSnapshot> {
-  return invoke<AccountsSnapshot>("add_codex_account")
+export async function startAddCodexAccount(): Promise<ReauthStartResponse> {
+  return invoke<ReauthStartResponse>("start_add_codex_account")
+}
+
+export async function pollAddCodexAccount(
+  sessionId: string,
+): Promise<ReauthPollResponse> {
+  return invoke<ReauthPollResponse>("poll_add_codex_account", {
+    sessionId,
+  })
+}
+
+export async function cancelAddCodexAccount(
+  sessionId: string,
+): Promise<void> {
+  return invoke<void>("cancel_add_codex_account", {
+    sessionId,
+  })
 }
 
 export async function startReauthenticateCodexAccount(

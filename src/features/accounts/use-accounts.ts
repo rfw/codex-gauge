@@ -7,13 +7,15 @@ import {
 import { listen } from "@tauri-apps/api/event"
 
 import {
-  addCodexAccount,
+  cancelAddCodexAccount,
   cancelReauthenticateCodexAccount,
   deleteCodexAccount,
   getAccounts,
+  pollAddCodexAccount,
   pollReauthenticateCodexAccount,
   renameCodexAccount,
   setActiveAccount,
+  startAddCodexAccount,
   startReauthenticateCodexAccount,
 } from "@/features/accounts/account-service"
 import type {
@@ -366,26 +368,28 @@ export function useAccounts() {
     [accounts, applySnapshot, beginMetadataMutation, completeMetadataMutation],
   )
 
-  const addAccount = useCallback(async () => {
+  const startAddAccount = useCallback(async () => {
     setError(null)
-    beginUsageMutation()
+    return startAddCodexAccount()
+  }, [])
 
-    try {
-      const snapshot = await addCodexAccount()
+  const pollAddAccount = useCallback(async (sessionId: string) => {
+    const response = await pollAddCodexAccount(sessionId)
+
+    if (response.status === "succeeded" && response.snapshot) {
+      // Make usage requests that started before sign-in completion stale
+      // before applying the authoritative account snapshot.
+      beginUsageMutation()
       completeUsageMutation()
-      applySnapshot(snapshot)
-    } catch (cause) {
-      completeUsageMutation()
-
-      const message =
-        cause instanceof Error
-          ? cause.message
-          : "Unable to add Codex account."
-
-      setError(message)
-      throw cause
+      applySnapshot(response.snapshot)
     }
+
+    return response
   }, [applySnapshot, beginUsageMutation, completeUsageMutation])
+
+  const cancelAddAccount = useCallback(async (sessionId: string) => {
+    await cancelAddCodexAccount(sessionId)
+  }, [])
 
   const startReauthentication = useCallback(async (accountId: string) => {
     return startReauthenticateCodexAccount(accountId)
@@ -548,7 +552,9 @@ export function useAccounts() {
     refresh,
     switchAccount,
     renameAccount,
-    addAccount,
+    startAddAccount,
+    pollAddAccount,
+    cancelAddAccount,
     startReauthentication,
     pollReauthentication,
     cancelReauthentication,
