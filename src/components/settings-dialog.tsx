@@ -88,10 +88,8 @@ export function SettingsDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="!w-full !max-w-none grid-rows-[auto_minmax(0,1fr)] gap-4 overflow-hidden p-4 sm:!max-w-none"
-        style={{
-          height: "calc(100dvh - var(--window-titlebar-safe-top) - 10px)",
-        }}
+        fillViewport
+        className="grid-rows-[auto_minmax(0,1fr)] gap-4 overflow-hidden p-4"
       >
         <DialogHeader>
           <DialogTitle>{t("settings.title")}</DialogTitle>

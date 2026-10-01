@@ -226,36 +226,27 @@ function AccountCardComponent({
             {canDelete || canSwitch ? (
               <div className="-mr-1 flex shrink-0 items-center gap-1">
                 {canDelete ? (
-                  isOnlyAccount ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="h-7 px-2.5 text-sm text-destructive hover:bg-destructive/10 hover:text-destructive"
-                      disabled={isDeleting}
-                      onClick={() => setDeleteConfirmOpen(true)}
-                    >
-                      <Trash2 className="size-3.5" />
-                      {t("account.delete")}
-                    </Button>
-                  ) : (
-                    <TooltipProvider delay={250}>
-                      <Tooltip>
-                        <TooltipTrigger
-                          type="button"
-                          className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:ring-2 focus-visible:ring-ring/50"
-                          aria-label={t("account.deleteAria")}
-                          onClick={() => setDeleteConfirmOpen(true)}
-                        >
+                  <TooltipProvider delay={250}>
+                    <Tooltip>
+                      <TooltipTrigger
+                        type="button"
+                        className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:ring-2 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50"
+                        aria-label={t("account.deleteAria")}
+                        disabled={isDeleting}
+                        onClick={() => setDeleteConfirmOpen(true)}
+                      >
+                        {isDeleting ? (
+                          <LoaderCircle className="size-3.5 animate-spin" />
+                        ) : (
                           <Trash2 className="size-3.5" />
-                        </TooltipTrigger>
+                        )}
+                      </TooltipTrigger>
 
-                        <TooltipContent side="top">
-                          {t("account.delete")}
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  )
+                      <TooltipContent side="top">
+                        {t("account.delete")}
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 ) : null}
 
                 {canSwitch ? (
