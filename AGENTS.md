@@ -251,3 +251,14 @@ Important manual regression checks:
 - Existing Windows account storage and switching behavior still work.
 
 If the local environment cannot run Bun/Rust/Tauri, say so explicitly; do not claim a build/test passed based only on static inspection.
+
+## macOS Codex / Node runtime resolution
+
+- A Codex CLI that works in Terminal must also work when CodexGauge is launched from Finder/Dock. macOS GUI processes do **not** reliably inherit the user's shell `PATH`.
+- Do not add one-off fixes for NVM, FNM, Homebrew, Volta, asdf, mise, pnpm, npm prefixes, Bun, or other Node managers. Runtime discovery must remain manager-agnostic.
+- `src-tauri/src/runtime.rs` owns Codex runtime discovery. On macOS it restores the user's real shell environment, resolves `codex` and `node`, merges that PATH with stable fallbacks, and caches the successful runtime for the process lifetime.
+- Every non-Windows `Command` that launches Codex must use both `runtime::codex_executable()` and `runtime::configure_codex_runtime(&mut command)`. Do not launch a resolved `codex` path without applying the runtime PATH; npm-installed Codex launchers commonly use `#!/usr/bin/env node`.
+- Keep direct path scans only as fallback behavior. The primary source of truth is the user's configured shell environment so custom Node/npm installation locations continue to work.
+- Shell probing must be bounded by a timeout. A broken or slow shell startup file must not hang CodexGauge.
+- Windows retains its existing `cmd.exe /D /C codex ...` execution path unless a separate Windows requirement justifies changing it.
+- When touching runtime detection, regression-test at least: NVM/FNM-style Node path, Homebrew/direct Node install, Codex `--version`, usage app-server, add-account sign-in app-server, and daemon stop.

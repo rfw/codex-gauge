@@ -505,6 +505,7 @@ fn spawn_app_server(
     #[cfg(not(target_os = "windows"))]
     {
         let mut command = Command::new(runtime::codex_executable());
+        runtime::configure_codex_runtime(&mut command);
 
         command
             .args([

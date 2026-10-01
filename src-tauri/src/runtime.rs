@@ -3,10 +3,12 @@ use std::collections::BTreeSet;
 use std::fs;
 #[cfg(target_os = "macos")]
 use std::env;
+#[cfg(target_os = "macos")]
+use std::ffi::{OsStr, OsString};
 use std::path::Path;
 #[cfg(not(target_os = "windows"))]
 use std::path::PathBuf;
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "macos")]
 use std::sync::OnceLock;
 use std::process::{Command, Output, Stdio};
 use std::thread;
@@ -19,8 +21,29 @@ const BACKGROUND_STOP_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const UPDATER_GRACE_TIMEOUT: Duration = Duration::from_secs(2);
 const FORCE_KILL_TIMEOUT: Duration = Duration::from_secs(2);
 
-#[cfg(not(target_os = "windows"))]
-static RESOLVED_CODEX_EXECUTABLE: OnceLock<PathBuf> = OnceLock::new();
+#[cfg(target_os = "macos")]
+static RESOLVED_CODEX_RUNTIME: OnceLock<CodexRuntimeEnvironment> = OnceLock::new();
+
+#[cfg(target_os = "macos")]
+const SHELL_RUNTIME_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+
+#[cfg(target_os = "macos")]
+const SHELL_RUNTIME_PROBE: &str = r#"printf '__CODEXGAUGE_PATH__=%s\n' "$PATH"; printf '__CODEXGAUGE_CODEX__=%s\n' "$(command -v codex 2>/dev/null || true)"; printf '__CODEXGAUGE_NODE__=%s\n' "$(command -v node 2>/dev/null || true)""#;
+
+#[cfg(target_os = "macos")]
+#[derive(Debug, Clone)]
+struct CodexRuntimeEnvironment {
+    executable: PathBuf,
+    path: OsString,
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Debug, Default)]
+struct ShellRuntimeEnvironment {
+    path: Option<OsString>,
+    codex: Option<PathBuf>,
+    node: Option<PathBuf>,
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -46,28 +69,238 @@ struct CodexProcessSnapshot {
 
 #[cfg(not(target_os = "windows"))]
 pub(crate) fn codex_executable() -> PathBuf {
-    if let Some(path) = RESOLVED_CODEX_EXECUTABLE.get() {
-        return path.clone();
-    }
-
     #[cfg(target_os = "macos")]
-    if let Some(path) = resolve_macos_codex_executable() {
-        let _ = RESOLVED_CODEX_EXECUTABLE.set(path.clone());
-        return path;
+    if let Some(runtime) = resolved_macos_codex_runtime() {
+        return runtime.executable.clone();
     }
 
     PathBuf::from("codex")
 }
 
+/// Applies the runtime PATH required by the resolved Codex CLI.
+///
+/// macOS GUI apps do not inherit the user's interactive shell environment, so
+/// a Codex launcher installed through NVM/FNM/npm/pnpm/etc. may be visible in
+/// Terminal but fail when it executes `#!/usr/bin/env node` from a Tauri app.
+/// Every Codex child process must use this helper instead of relying on the GUI
+/// process PATH.
+#[cfg(not(target_os = "windows"))]
+pub(crate) fn configure_codex_runtime(command: &mut Command) {
+    #[cfg(target_os = "macos")]
+    if let Some(runtime) = resolved_macos_codex_runtime() {
+        command.env("PATH", &runtime.path);
+    }
+}
+
 #[cfg(target_os = "macos")]
-fn resolve_macos_codex_executable() -> Option<PathBuf> {
-    if let Some(path) = find_executable_on_current_path("codex") {
-        return Some(path);
+fn resolved_macos_codex_runtime() -> Option<&'static CodexRuntimeEnvironment> {
+    if let Some(runtime) = RESOLVED_CODEX_RUNTIME.get() {
+        return Some(runtime);
     }
 
+    let runtime = resolve_macos_codex_runtime()?;
+    let _ = RESOLVED_CODEX_RUNTIME.set(runtime);
+    RESOLVED_CODEX_RUNTIME.get()
+}
+
+#[cfg(target_os = "macos")]
+fn resolve_macos_codex_runtime() -> Option<CodexRuntimeEnvironment> {
+    let shell = resolve_shell_runtime_environment();
+
+    let executable = shell
+        .codex
+        .as_ref()
+        .filter(|path| path.is_file())
+        .cloned()
+        .or_else(|| {
+            shell
+                .path
+                .as_ref()
+                .and_then(|path| find_executable_on_path("codex", path))
+        })
+        .or_else(|| find_executable_on_current_path("codex"))
+        .or_else(resolve_macos_codex_fallback)?;
+
+    let effective_path = build_macos_runtime_path(&executable, &shell);
+
+    Some(CodexRuntimeEnvironment {
+        executable,
+        path: effective_path,
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn resolve_shell_runtime_environment() -> ShellRuntimeEnvironment {
+    let mut shells = Vec::<PathBuf>::new();
+
+    if let Some(shell) = env::var_os("SHELL").map(PathBuf::from) {
+        push_unique_path(&mut shells, shell);
+    }
+
+    // Keep standard macOS shells as fallbacks in case the GUI environment did
+    // not inherit SHELL. The user's configured shell remains first priority.
+    push_unique_path(&mut shells, PathBuf::from("/bin/zsh"));
+    push_unique_path(&mut shells, PathBuf::from("/bin/bash"));
+
+    for shell in shells.into_iter().filter(|path| path.is_file()) {
+        // Interactive + login mode is deliberate: NVM/FNM/mise/asdf are often
+        // initialized from .zshrc/.bashrc rather than login-only profile files.
+        if let Some(environment) = probe_shell_runtime(&shell, &["-i", "-l", "-c"]) {
+            if environment.codex.is_some() || environment.node.is_some() {
+                return environment;
+            }
+        }
+
+        // Some custom shells behave better without interactive mode. This is a
+        // fallback and still captures PATH from the user's login environment.
+        if let Some(environment) = probe_shell_runtime(&shell, &["-l", "-c"]) {
+            if environment.codex.is_some() || environment.node.is_some() {
+                return environment;
+            }
+        }
+    }
+
+    ShellRuntimeEnvironment::default()
+}
+
+#[cfg(target_os = "macos")]
+fn probe_shell_runtime(shell: &Path, flags: &[&str]) -> Option<ShellRuntimeEnvironment> {
+    let mut command = Command::new(shell);
+    command
+        .args(flags)
+        .arg(SHELL_RUNTIME_PROBE)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+
+    let mut child = command.spawn().ok()?;
+    let deadline = Instant::now() + SHELL_RUNTIME_PROBE_TIMEOUT;
+
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) if Instant::now() < deadline => {
+                thread::sleep(Duration::from_millis(50));
+            }
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+            Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+        }
+    }
+
+    let output = child.wait_with_output().ok()?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut environment = ShellRuntimeEnvironment::default();
+
+    for line in stdout.lines() {
+        if let Some(value) = line.strip_prefix("__CODEXGAUGE_PATH__=") {
+            if !value.trim().is_empty() {
+                environment.path = Some(OsString::from(value.trim()));
+            }
+        } else if let Some(value) = line.strip_prefix("__CODEXGAUGE_CODEX__=") {
+            environment.codex = parse_absolute_executable(value);
+        } else if let Some(value) = line.strip_prefix("__CODEXGAUGE_NODE__=") {
+            environment.node = parse_absolute_executable(value);
+        }
+    }
+
+    Some(environment)
+}
+
+#[cfg(target_os = "macos")]
+fn parse_absolute_executable(value: &str) -> Option<PathBuf> {
+    let path = PathBuf::from(value.trim());
+    (path.is_absolute() && path.is_file()).then_some(path)
+}
+
+#[cfg(target_os = "macos")]
+fn build_macos_runtime_path(
+    codex_executable: &Path,
+    shell: &ShellRuntimeEnvironment,
+) -> OsString {
+    let mut entries = Vec::<PathBuf>::new();
+
+    // A Node-based Codex launcher usually has `node` in the same bin directory
+    // (NVM/FNM/Homebrew). Put the executable's directory first so `env node`
+    // resolves exactly as it does in the user's terminal.
+    if let Some(parent) = codex_executable.parent() {
+        push_unique_path(&mut entries, parent.to_path_buf());
+    }
+
+    if let Some(node) = shell.node.as_ref().and_then(|path| path.parent()) {
+        push_unique_path(&mut entries, node.to_path_buf());
+    }
+
+    if let Some(path) = shell.path.as_ref() {
+        append_path_entries(&mut entries, path);
+    }
+
+    if let Some(path) = env::var_os("PATH") {
+        append_path_entries(&mut entries, &path);
+    }
+
+    // Stable fallbacks cover direct Homebrew/macOS package installs even when
+    // the user's shell startup files are unavailable or broken.
+    for path in [
+        "/opt/homebrew/bin",
+        "/usr/local/bin",
+        "/opt/local/bin",
+        "/usr/bin",
+        "/bin",
+        "/usr/sbin",
+        "/sbin",
+    ] {
+        push_unique_path(&mut entries, PathBuf::from(path));
+    }
+
+    if let Some(home) = env::var_os("HOME").map(PathBuf::from) {
+        for path in [
+            home.join(".local/bin"),
+            home.join(".npm-global/bin"),
+            home.join(".volta/bin"),
+            home.join(".bun/bin"),
+            home.join(".asdf/shims"),
+            home.join(".local/share/mise/shims"),
+            home.join("Library/pnpm"),
+        ] {
+            push_unique_path(&mut entries, path);
+        }
+    }
+
+    env::join_paths(entries).unwrap_or_else(|_| {
+        env::var_os("PATH").unwrap_or_else(|| OsString::from("/usr/bin:/bin:/usr/sbin:/sbin"))
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn append_path_entries(entries: &mut Vec<PathBuf>, path: &OsStr) {
+    for entry in env::split_paths(path) {
+        push_unique_path(entries, entry);
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn push_unique_path(paths: &mut Vec<PathBuf>, path: PathBuf) {
+    if path.as_os_str().is_empty() || paths.iter().any(|existing| existing == &path) {
+        return;
+    }
+
+    paths.push(path);
+}
+
+#[cfg(target_os = "macos")]
+fn resolve_macos_codex_fallback() -> Option<PathBuf> {
     let mut candidates = vec![
         PathBuf::from("/opt/homebrew/bin/codex"),
         PathBuf::from("/usr/local/bin/codex"),
+        PathBuf::from("/opt/local/bin/codex"),
     ];
 
     if let Some(home) = env::var_os("HOME").map(PathBuf::from) {
@@ -81,7 +314,11 @@ fn resolve_macos_codex_executable() -> Option<PathBuf> {
             home.join("Library/pnpm/codex"),
         ]);
 
-        append_versioned_codex_candidates(&home.join(".nvm/versions/node"), "bin/codex", &mut candidates);
+        append_versioned_codex_candidates(
+            &home.join(".nvm/versions/node"),
+            "bin/codex",
+            &mut candidates,
+        );
         append_versioned_codex_candidates(
             &home.join(".fnm/node-versions"),
             "installation/bin/codex",
@@ -100,8 +337,12 @@ fn resolve_macos_codex_executable() -> Option<PathBuf> {
 #[cfg(target_os = "macos")]
 fn find_executable_on_current_path(name: &str) -> Option<PathBuf> {
     let path = env::var_os("PATH")?;
+    find_executable_on_path(name, &path)
+}
 
-    env::split_paths(&path)
+#[cfg(target_os = "macos")]
+fn find_executable_on_path(name: &str, path: &OsStr) -> Option<PathBuf> {
+    env::split_paths(path)
         .map(|directory| directory.join(name))
         .find(|candidate| candidate.is_file())
 }
@@ -176,10 +417,24 @@ pub(crate) fn codex_cli_status() -> RuntimeStatus {
                 codex_cli_version: version,
             }
         }
-        Ok(_) | Err(_) => RuntimeStatus {
-            codex_cli_installed: false,
-            codex_cli_version: None,
-        },
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            if !stderr.is_empty() {
+                log::warn!("Codex CLI was found but could not start successfully: {stderr}");
+            }
+
+            RuntimeStatus {
+                codex_cli_installed: false,
+                codex_cli_version: None,
+            }
+        }
+        Err(error) => {
+            log::warn!("Failed to launch Codex CLI: {error}");
+            RuntimeStatus {
+                codex_cli_installed: false,
+                codex_cli_version: None,
+            }
+        }
     }
 }
 
@@ -461,7 +716,10 @@ fn codex_version_output() -> Result<Output, std::io::Error> {
 
     #[cfg(not(target_os = "windows"))]
     {
-        Command::new(codex_executable())
+        let mut command = Command::new(codex_executable());
+        configure_codex_runtime(&mut command);
+
+        command
             .arg("--version")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -490,7 +748,10 @@ fn codex_daemon_stop_output(codex_home: &Path) -> Result<Output, std::io::Error>
 
     #[cfg(not(target_os = "windows"))]
     {
-        Command::new(codex_executable())
+        let mut command = Command::new(codex_executable());
+        configure_codex_runtime(&mut command);
+
+        command
             .args(["app-server", "daemon", "stop"])
             .env("CODEX_HOME", codex_home)
             .env("NO_COLOR", "1")
